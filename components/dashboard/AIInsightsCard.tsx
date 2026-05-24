@@ -1,2 +1,52 @@
-import type {DisciplineScore,TodayReportStatus} from '@/lib/supabase'
-export default function AIInsightsCard({scores,todayReports}:{scores:DisciplineScore[];todayReports:TodayReportStatus[]}){const top=scores[0];const bottom=scores[scores.length-1];const missedToday=todayReports.filter(r=>r.report_status==='missing');const avgScore=scores.length?Math.round(scores.reduce((s,m)=>s+m.score,0)/scores.length):0;return(<div className="bg-surface border border-border rounded-2xl p-5"><div className="flex items-center justify-between mb-4"><div className="text-[14px] font-bold">✦ AI Инсайты</div><span className="text-[10px] bg-accent/10 text-accent2 rounded-full px-2 py-0.5">Неделя #12</span></div><div className="bg-surface2 rounded-xl p-3 mb-2 border-l-2 border-accent"><div className="text-[11px] text-accent2 font-bold uppercase mb-1">✦� Тренд группы</div><div className="text-[12px] leading-relaxed opacity-85">Средний скор дисциплины — <span className="text-accent2 font-semibold">{avgScore}%</span>.{top&&` ${top.name.split(' ')[0]} держит лидерство со скорон ${top.score}.`}</div></div>{bottom&&bottom.score<70&&(<div className="bg-surface2 rounded-xl p-3 mb-2 border-l-2 border-c-red"><div className="text-[11px] text-c-red font-bold uppercase mb-1">⚠ Зона риска</div><div className="text-[12px] leading-relaxed opacity-85">{bottom.name.split(' ')[0]} — скор {bottom.score}. Рекомендуется обсудить на встрече.</div></div>)}{missedToday.length===0?(<div className="bg-surface2 rounded-xl p-3 border-l-2 border-c-green"><div className="text-[11px] text-c-green font-bold uppercase mb-1">↑ Сегодня</div><div className="text-[12px] leading-relaxed opacity-85">Все участники сдали отчёты.</div></div>):(<div className="bg-surface2 rounded-xl p-3 border-l-2 border-c-orange"><div className="text-[11px] text-c-orange font-bold uppercase mb-1">⏰ Сегодня</div><div className="text-[12px] leading-relaxed opacity-85">{missedToday.map(r=>r.name.split(' ')[0]).join(', ')} ещё не сдалi отчёт.</div></div>))}</div>)}
+import type { DisciplineScore, TodayReportStatus } from '@/lib/supabase'
+
+export default function AIInsightsCard({ scores, todayReports }: {
+  scores: DisciplineScore[]
+  todayReports: TodayReportStatus[]
+}) {
+  const top = scores[0]
+  const bottom = scores[scores.length - 1]
+  const missedToday = todayReports.filter(r => r.report_status === 'missing')
+  const avgScore = scores.length
+    ? Math.round(scores.reduce((s, m) => s + m.score, 0) / scores.length)
+    : 0
+
+  return (
+    <div className="bg-surface border border-border rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-[14px] font-bold">✦ AI Инсайты</div>
+        <span className="text-[10px] bg-accent/10 text-accent2 rounded-full px-2 py-0.5">
+          Встреча #12
+        </span>
+      </div>
+      <div className="bg-surface2 rounded-xl p-3 mb-2 border-l-2 border-accent">
+        <div className="text-[11px] text-accent2 font-bold uppercase mb-1">⦤ Тренд группы</div>
+        <div className="text-[12px] leading-relaxed opacity-85">
+          Средний скор дисциплины — <span className="text-accent2 font-semibold">{avgScore}%</span>.
+          {top && ` ${top.name.split(' ')[0]} держит лидерство со скорон ${top.score}.`}
+        </div>
+      </div>
+      {bottom && bottom.score < 70 && (
+        <div className="bg-surface2 rounded-xl p-3 mb-2 border-l-2 border-c-red">
+          <div className="text-[11px] text-c-red font-bold uppercase mb-1">⚠ Зона риска</div>
+          <div className="text-[12px] leading-relaxed opacity-85">
+            {bottom.name.split(' ')[0]} — скор {bottom.score}. Рекомендуется обсудить на встрече.
+          </div>
+        </div>
+      )}
+      {missedToday.length === 0 ? (
+        <div className="bg-surface2 rounded-xl p-3 border-l-2 border-c-green">
+          <div className="text-[11px] text-c-green font-bold uppercase mb-1">↑ Сегодня</div>
+          <div className="text-[12px] leading-relaxed opacity-85">Все участники сдали отчёты.</div>
+        </div>
+      ) : (
+        <div className="bg-surface2 rounded-xl p-3 border-l-2 border-c-orange">
+          <div className="text-[11px] text-c-orange font-bold uppercase mb-1">⏰ Сегодня</div>
+          <div className="text-[12px] leading-relaxed opacity-85">
+            {missedToday.map(r => r.name.split(' ')[0]).join(', ')} ещё не сдали отчёт.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
