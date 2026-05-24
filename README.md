@@ -1,11 +1,3 @@
-# MindStack — Mastermind OS
+# MindStack
 
-Платформа для мастер-майнд группы.
-
-## Страницы
-- `/dashboard`
-- `/members`
-- `/meetings`
-- `/reports`
-- `/fines`
-- `/analytics`
+Pages: dashboard, members, meetings, reports, fines, analytics
