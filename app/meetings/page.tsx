@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 type Meeting = { id: string; meeting_number: number; date: string; status: string; ai_summary: string | null }
@@ -10,14 +10,6 @@ const STATUS: Record<string, { label: string; color: string }> = {
   completed: { label: 'Проведена', color: 'text-c-green bg-c-green/10' },
   planned:   { label: 'Запланирована', color: 'text-accent2 bg-accent/10' },
   active:    { label: 'Идёт сейчас', color: 'text-c-orange bg-c-orange/10' },
-}
-
-function renderMarkdown(text: string) {
-  return text
-    .replace(/^## (.+)$/gm, '<div class="text-[13px] font-bold mt-4 mb-1.5">$1</div>')
-    .replace(/^\*\*(.+?):\*\*$/gm, '<div class="text-[12px] font-semibold text-accent2 mt-2">$1</div>')
-    .replace(/^• (.+)$/gm, '<div class="flex gap-2 text-[12px] leading-relaxed"><span class="text-muted mt-0.5">•</span><span>$1</span></div>')
-    .replace(/\n/g, '')
 }
 
 export default function MeetingsPage() {
@@ -38,7 +30,10 @@ export default function MeetingsPage() {
   const [showAI, setShowAI] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<Record<string, string>>({})
   const [analyzing, setAnalyzing] = useState<string | null>(null)
+  const [transcribing, setTranscribing] = useState<string | null>(null)
   const [aiResult, setAiResult] = useState<Record<string, string>>({})
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [activeFileUpload, setActiveFileUpload] = useState<string | null>(null)
 
   async function load() {
     const [{ data: m }, { data: a }, { data: mb }] = await Promise.all([
@@ -104,6 +99,27 @@ export default function MeetingsPage() {
     load()
   }
 
+  // Загрузка аудио и транскрибация через Groq Whisper
+  async function handleAudioUpload(meetingId: string, file: File) {
+    setTranscribing(meetingId)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/transcribe', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (data.transcript) {
+        setTranscript(t => ({ ...t, [meetingId]: data.transcript }))
+        if (!showAI) setShowAI(meetingId)
+      } else {
+        alert('Ошибка транскрибации: ' + (data.error || 'неизвестная ошибка'))
+      }
+    } catch(e) {
+      alert('Ошибка подключения к сервису транскрибации')
+    }
+    setTranscribing(null)
+  }
+
+  // ИИ анализ через Claude
   async function analyzeWithAI(meetingId: string, meeting: Meeting) {
     const text = transcript[meetingId]
     if (!text || text.trim().length < 50) return
@@ -122,15 +138,14 @@ export default function MeetingsPage() {
       const data = await res.json()
       if (data.analysis) {
         setAiResult(r => ({ ...r, [meetingId]: data.analysis }))
-        // Сохраняем результат в заметки
         await supabase.from('meetings').update({ ai_summary: data.analysis }).eq('id', meetingId)
         setEditNotes(n => ({ ...n, [meetingId]: data.analysis }))
         load()
       } else {
-        setAiResult(r => ({ ...r, [meetingId]: 'Ошибка: ' + data.error }))
+        alert('Ошибка ИИ: ' + (data.error || 'неизвестная ошибка'))
       }
     } catch(e) {
-      setAiResult(r => ({ ...r, [meetingId]: 'Ошибка подключения к ИИ' }))
+      alert('Ошибка подключения к ИИ')
     }
     setAnalyzing(null)
     setShowAI(null)
@@ -140,6 +155,19 @@ export default function MeetingsPage() {
 
   return (
     <div className="p-8 animate-fade-in max-w-[900px]">
+      {/* Скрытый input для файлов */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        accept="audio/*,video/*,.mp3,.mp4,.wav,.m4a,.ogg,.webm"
+        onChange={e => {
+          const file = e.target.files?.[0]
+          if (file && activeFileUpload) handleAudioUpload(activeFileUpload, file)
+          e.target.value = ''
+        }}
+      />
+
       <div className="flex items-center justify-between mb-7">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Встречи</h1>
@@ -236,50 +264,79 @@ export default function MeetingsPage() {
 
                   {/* ИИ Анализ */}
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-[11px] text-muted font-mono uppercase tracking-wider">🤖 ИИ Анализ встречи</div>
-                      <button onClick={() => setShowAI(showAI === m.id ? null : m.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 hover:bg-accent/30 text-accent2 text-[11px] font-bold rounded-lg transition-colors">
-                        {showAI === m.id ? '✕ Закрыть' : '+ Загрузить запись'}
+                    <div className="text-[11px] text-muted font-mono uppercase tracking-wider mb-2">🤖 ИИ Анализ встречи</div>
+
+                    {/* Кнопки загрузки */}
+                    <div className="flex gap-2 mb-3 flex-wrap">
+                      {/* Загрузка аудио */}
+                      <button
+                        onClick={() => { setActiveFileUpload(m.id); fileInputRef.current?.click() }}
+                        disabled={transcribing === m.id}
+                        className="flex items-center gap-2 px-3 py-2 bg-surface2 hover:bg-surface border border-border text-[12px] font-semibold rounded-xl transition-colors disabled:opacity-40"
+                      >
+                        {transcribing === m.id ? (
+                          <><span className="animate-spin inline-block">⟳</span> Транскрибирую...</>
+                        ) : (
+                          <>🎙 Загрузить аудио</>
+                        )}
+                      </button>
+
+                      {/* Вставить текст */}
+                      <button
+                        onClick={() => setShowAI(showAI === m.id ? null : m.id)}
+                        className="flex items-center gap-2 px-3 py-2 bg-surface2 hover:bg-surface border border-border text-[12px] font-semibold rounded-xl transition-colors"
+                      >
+                        {showAI === m.id ? '✕ Скрыть' : '📝 Вставить текст'}
                       </button>
                     </div>
 
-                    {showAI === m.id && (
-                      <div className="bg-surface2 border border-accent/20 rounded-xl p-4 mb-3">
-                        <div className="text-[12px] text-muted mb-2">Вставь транскрипт или текстовую запись встречи:</div>
-                        <textarea
-                          value={transcript[m.id] || ''}
-                          onChange={e => setTranscript(t => ({ ...t, [m.id]: e.target.value }))}
-                          placeholder="Вставь сюда текст записи встречи, транскрипт или заметки..."
-                          rows={6}
-                          className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-[12px] leading-relaxed focus:outline-none focus:border-accent resize-none"
-                        />
-                        <div className="flex items-center gap-3 mt-3">
-                          <button
-                            onClick={() => analyzeWithAI(m.id, m)}
-                            disabled={analyzing === m.id || !transcript[m.id] || transcript[m.id].trim().length < 50}
-                            className="flex items-center gap-2 px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[12px] font-bold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            {analyzing === m.id ? (
-                              <><span className="animate-spin">⟳</span> Анализирую...</>
-                            ) : (
-                              <>🤖 Анализировать</>
-                            )}
-                          </button>
-                          <span className="text-[11px] text-muted">минимум 50 символов</span>
-                        </div>
+                    {/* Статус транскрибации */}
+                    {transcribing === m.id && (
+                      <div className="bg-accent/10 border border-accent/20 rounded-xl px-4 py-3 text-[12px] text-accent2 mb-3">
+                        ⟳ Groq Whisper транскрибирует аудио... (~30 сек)
                       </div>
                     )}
 
-                    {/* Результат ИИ или сохранённые заметки */}
-                    {(aiResult[m.id] || m.ai_summary) && (
-                      <div className="bg-surface2 border border-border rounded-xl p-4">
-                        {aiResult[m.id] ? (
-                          <div className="text-[12px] leading-relaxed"
-                            dangerouslySetInnerHTML={{__html: renderMarkdown(aiResult[m.id])}} />
+                    {/* Текст транскрипта */}
+                    {transcript[m.id] && !showAI && (
+                      <div className="bg-surface2 border border-c-green/20 rounded-xl px-4 py-2 text-[11px] text-c-green font-semibold mb-3">
+                        ✓ Транскрипт готов — {transcript[m.id].length} символов
+                      </div>
+                    )}
+
+                    {/* Поле ввода текста */}
+                    {showAI === m.id && (
+                      <div className="bg-surface2 border border-accent/20 rounded-xl p-4 mb-3">
+                        <div className="text-[12px] text-muted mb-2">Транскрипт или текст записи встречи:</div>
+                        <textarea
+                          value={transcript[m.id] || ''}
+                          onChange={e => setTranscript(t => ({ ...t, [m.id]: e.target.value }))}
+                          placeholder="Вставь сюда текст записи встречи или транскрипт..."
+                          rows={6}
+                          className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-[12px] leading-relaxed focus:outline-none focus:border-accent resize-none"
+                        />
+                      </div>
+                    )}
+
+                    {/* Кнопка анализа */}
+                    {(transcript[m.id] || showAI === m.id) && (
+                      <button
+                        onClick={() => analyzeWithAI(m.id, m)}
+                        disabled={analyzing === m.id || !transcript[m.id] || transcript[m.id].trim().length < 50}
+                        className="flex items-center gap-2 px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[12px] font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed mb-3"
+                      >
+                        {analyzing === m.id ? (
+                          <><span className="animate-spin inline-block">⟳</span> Claude анализирует...</>
                         ) : (
-                          <div className="text-[12px] leading-relaxed whitespace-pre-wrap">{m.ai_summary}</div>
+                          <>🤖 Анализировать с Claude</>
                         )}
+                      </button>
+                    )}
+
+                    {/* Результат */}
+                    {(aiResult[m.id] || m.ai_summary) && (
+                      <div className="bg-surface2 border border-border rounded-xl p-4 text-[12px] leading-relaxed whitespace-pre-wrap">
+                        {aiResult[m.id] || m.ai_summary}
                       </div>
                     )}
                   </div>
