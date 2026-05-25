@@ -2,26 +2,22 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
-type Meeting = {
-  id: string
-  meeting_number: number
-  date: string
-  status: string
-  ai_summary: string | null
-}
-type Attendee = {
-  id: string
-  meeting_id: string
-  member_id: string
-  attended: boolean
-  members?: { name: string }
-}
+type Meeting = { id: string; meeting_number: number; date: string; status: string; ai_summary: string | null }
+type Attendee = { id: string; meeting_id: string; member_id: string; attended: boolean; members?: { name: string } }
 type Member = { id: string; name: string }
 
 const STATUS: Record<string, { label: string; color: string }> = {
   completed: { label: 'Проведена', color: 'text-c-green bg-c-green/10' },
   planned:   { label: 'Запланирована', color: 'text-accent2 bg-accent/10' },
   active:    { label: 'Идёт сейчас', color: 'text-c-orange bg-c-orange/10' },
+}
+
+function renderMarkdown(text: string) {
+  return text
+    .replace(/^## (.+)$/gm, '<div class="text-[13px] font-bold mt-4 mb-1.5">$1</div>')
+    .replace(/^\*\*(.+?):\*\*$/gm, '<div class="text-[12px] font-semibold text-accent2 mt-2">$1</div>')
+    .replace(/^• (.+)$/gm, '<div class="flex gap-2 text-[12px] leading-relaxed"><span class="text-muted mt-0.5">•</span><span>$1</span></div>')
+    .replace(/\n/g, '')
 }
 
 export default function MeetingsPage() {
@@ -37,6 +33,12 @@ export default function MeetingsPage() {
   const [savingNotes, setSavingNotes] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // ИИ анализ
+  const [showAI, setShowAI] = useState<string | null>(null)
+  const [transcript, setTranscript] = useState<Record<string, string>>({})
+  const [analyzing, setAnalyzing] = useState<string | null>(null)
+  const [aiResult, setAiResult] = useState<Record<string, string>>({})
 
   async function load() {
     const [{ data: m }, { data: a }, { data: mb }] = await Promise.all([
@@ -94,14 +96,44 @@ export default function MeetingsPage() {
 
   async function deleteMeeting(meetingId: string) {
     setDeleting(true)
-    // Сначала удаляем явку
     await supabase.from('meeting_attendees').delete().eq('meeting_id', meetingId)
-    // Потом саму встречу
     await supabase.from('meetings').delete().eq('id', meetingId)
     setConfirmDelete(null)
     setExpanded(null)
     setDeleting(false)
     load()
+  }
+
+  async function analyzeWithAI(meetingId: string, meeting: Meeting) {
+    const text = transcript[meetingId]
+    if (!text || text.trim().length < 50) return
+    setAnalyzing(meetingId)
+    try {
+      const res = await fetch('/api/ai-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: text,
+          meetingNumber: meeting.meeting_number,
+          date: new Date(meeting.date).toLocaleDateString('ru-RU'),
+          members: members.map(m => m.name),
+        }),
+      })
+      const data = await res.json()
+      if (data.analysis) {
+        setAiResult(r => ({ ...r, [meetingId]: data.analysis }))
+        // Сохраняем результат в заметки
+        await supabase.from('meetings').update({ ai_summary: data.analysis }).eq('id', meetingId)
+        setEditNotes(n => ({ ...n, [meetingId]: data.analysis }))
+        load()
+      } else {
+        setAiResult(r => ({ ...r, [meetingId]: 'Ошибка: ' + data.error }))
+      }
+    } catch(e) {
+      setAiResult(r => ({ ...r, [meetingId]: 'Ошибка подключения к ИИ' }))
+    }
+    setAnalyzing(null)
+    setShowAI(null)
   }
 
   if (loading) return <div className="p-8 text-muted text-[14px]">Загрузка...</div>
@@ -111,12 +143,10 @@ export default function MeetingsPage() {
       <div className="flex items-center justify-between mb-7">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Встречи</h1>
-          <p className="text-[13px] text-muted mt-1">Еженедельно по субботам · {meetings.length} встреч</p>
+          <p className="text-[13px] text-muted mt-1">Еженедельно · {meetings.length} встреч</p>
         </div>
-        <button
-          onClick={() => setShowCreate(v => !v)}
-          className="flex items-center gap-2 px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[13px] font-bold rounded-xl transition-colors"
-        >
+        <button onClick={() => setShowCreate(v => !v)}
+          className="flex items-center gap-2 px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[13px] font-bold rounded-xl transition-colors">
           + Новая встреча
         </button>
       </div>
@@ -128,10 +158,10 @@ export default function MeetingsPage() {
             <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
               className="bg-surface2 border border-border rounded-xl px-3 py-2 text-[13px] focus:outline-none focus:border-accent" />
             <button onClick={createMeeting} disabled={!newDate || saving}
-              className="px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[13px] font-bold rounded-xl transition-colors disabled:opacity-40">
+              className="px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[13px] font-bold rounded-xl disabled:opacity-40">
               {saving ? 'Создаю...' : 'Создать'}
             </button>
-            <button onClick={() => setShowCreate(false)} className="text-muted text-[13px] hover:text-foreground">Отмена</button>
+            <button onClick={() => setShowCreate(false)} className="text-muted text-[13px]">Отмена</button>
           </div>
         </div>
       )}
@@ -144,7 +174,7 @@ export default function MeetingsPage() {
           const isExpanded = expanded === m.id
 
           return (
-            <div key={m.id} className="bg-surface border border-border rounded-2xl overflow-hidden hover:border-border2 transition-colors">
+            <div key={m.id} className="bg-surface border border-border rounded-2xl overflow-hidden">
               <div className="flex items-start justify-between p-5 cursor-pointer"
                 onClick={() => {
                   setExpanded(isExpanded ? null : m.id)
@@ -196,29 +226,76 @@ export default function MeetingsPage() {
                         const isPresent = att?.attended ?? false
                         return (
                           <button key={mb.id} onClick={() => toggleAttendance(m.id, mb.id, !isPresent)}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-semibold border transition-colors ${
-                              isPresent ? 'text-c-green bg-c-green/10 border-c-green/30' : 'text-muted bg-surface2 border-border hover:border-border2'
-                            }`}>
-                            <span>{isPresent ? '✓' : '○'}</span>
-                            {mb.name.split(' ')[0]}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-semibold border transition-colors ${isPresent ? 'text-c-green bg-c-green/10 border-c-green/30' : 'text-muted bg-surface2 border-border'}`}>
+                            <span>{isPresent ? '✓' : '○'}</span>{mb.name.split(' ')[0]}
                           </button>
                         )
                       })}
                     </div>
                   </div>
 
+                  {/* ИИ Анализ */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[11px] text-muted font-mono uppercase tracking-wider">🤖 ИИ Анализ встречи</div>
+                      <button onClick={() => setShowAI(showAI === m.id ? null : m.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 hover:bg-accent/30 text-accent2 text-[11px] font-bold rounded-lg transition-colors">
+                        {showAI === m.id ? '✕ Закрыть' : '+ Загрузить запись'}
+                      </button>
+                    </div>
+
+                    {showAI === m.id && (
+                      <div className="bg-surface2 border border-accent/20 rounded-xl p-4 mb-3">
+                        <div className="text-[12px] text-muted mb-2">Вставь транскрипт или текстовую запись встречи:</div>
+                        <textarea
+                          value={transcript[m.id] || ''}
+                          onChange={e => setTranscript(t => ({ ...t, [m.id]: e.target.value }))}
+                          placeholder="Вставь сюда текст записи встречи, транскрипт или заметки..."
+                          rows={6}
+                          className="w-full bg-surface border border-border rounded-lg px-3 py-2.5 text-[12px] leading-relaxed focus:outline-none focus:border-accent resize-none"
+                        />
+                        <div className="flex items-center gap-3 mt-3">
+                          <button
+                            onClick={() => analyzeWithAI(m.id, m)}
+                            disabled={analyzing === m.id || !transcript[m.id] || transcript[m.id].trim().length < 50}
+                            className="flex items-center gap-2 px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[12px] font-bold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {analyzing === m.id ? (
+                              <><span className="animate-spin">⟳</span> Анализирую...</>
+                            ) : (
+                              <>🤖 Анализировать</>
+                            )}
+                          </button>
+                          <span className="text-[11px] text-muted">минимум 50 символов</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Результат ИИ или сохранённые заметки */}
+                    {(aiResult[m.id] || m.ai_summary) && (
+                      <div className="bg-surface2 border border-border rounded-xl p-4">
+                        {aiResult[m.id] ? (
+                          <div className="text-[12px] leading-relaxed"
+                            dangerouslySetInnerHTML={{__html: renderMarkdown(aiResult[m.id])}} />
+                        ) : (
+                          <div className="text-[12px] leading-relaxed whitespace-pre-wrap">{m.ai_summary}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Заметки */}
                   <div>
-                    <div className="text-[11px] text-muted font-mono uppercase tracking-wider mb-2">Заметки / Итоги встречи</div>
+                    <div className="text-[11px] text-muted font-mono uppercase tracking-wider mb-2">Заметки / Итоги</div>
                     <textarea
                       value={editNotes[m.id] ?? m.ai_summary ?? ''}
                       onChange={e => setEditNotes(n => ({ ...n, [m.id]: e.target.value }))}
                       placeholder="Что обсудили, договорились, решили..."
-                      rows={4}
+                      rows={3}
                       className="w-full bg-surface2 border border-border rounded-xl px-3 py-2.5 text-[13px] leading-relaxed focus:outline-none focus:border-accent resize-none"
                     />
                     <button onClick={() => saveNotes(m.id)} disabled={savingNotes === m.id}
-                      className="mt-2 px-4 py-1.5 bg-accent/20 hover:bg-accent/30 text-accent2 text-[12px] font-bold rounded-lg transition-colors disabled:opacity-40">
+                      className="mt-2 px-4 py-1.5 bg-accent/20 hover:bg-accent/30 text-accent2 text-[12px] font-bold rounded-lg disabled:opacity-40">
                       {savingNotes === m.id ? 'Сохраняю...' : '💾 Сохранить'}
                     </button>
                   </div>
@@ -226,20 +303,18 @@ export default function MeetingsPage() {
                   {/* Удаление */}
                   <div className="border-t border-border pt-4">
                     {confirmDelete !== m.id ? (
-                      <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(m.id) }}
+                      <button onClick={() => setConfirmDelete(m.id)}
                         className="flex items-center gap-2 px-3 py-1.5 text-c-red/70 hover:text-c-red hover:bg-c-red/10 text-[12px] font-semibold rounded-lg transition-colors">
                         🗑 Удалить встречу
                       </button>
                     ) : (
                       <div className="flex items-center gap-3">
-                        <span className="text-[12px] text-c-red font-semibold">Точно удалить? Это нельзя отменить.</span>
+                        <span className="text-[12px] text-c-red font-semibold">Точно удалить?</span>
                         <button onClick={() => deleteMeeting(m.id)} disabled={deleting}
-                          className="px-3 py-1.5 bg-c-red/15 hover:bg-c-red/25 text-c-red text-[12px] font-bold rounded-lg transition-colors disabled:opacity-40">
+                          className="px-3 py-1.5 bg-c-red/15 hover:bg-c-red/25 text-c-red text-[12px] font-bold rounded-lg disabled:opacity-40">
                           {deleting ? 'Удаляю...' : 'Да, удалить'}
                         </button>
-                        <button onClick={() => setConfirmDelete(null)} className="text-muted text-[12px] hover:text-foreground">
-                          Отмена
-                        </button>
+                        <button onClick={() => setConfirmDelete(null)} className="text-muted text-[12px]">Отмена</button>
                       </div>
                     )}
                   </div>
