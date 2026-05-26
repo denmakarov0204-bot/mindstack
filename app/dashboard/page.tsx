@@ -15,7 +15,7 @@ async function getData() {
     { data: week },
     { data: fines },
   ] = await Promise.all([
-    supabase.from('today_report_status').select('*'),
+    supabase.from('daily_reports').select('*, members(name)').eq('date', new Date(Date.now() + 3*60*60*1000 - 86400000).toISOString().split('T')[0]),
     supabase.from('members').select('*').eq('is_active', true).order('name'),
     supabase.from('discipline_scores').select('*').order('score', { ascending: false }),
     supabase.from('member_fine_balance').select('*'),
@@ -38,7 +38,7 @@ async function getData() {
 export default async function DashboardPage() {
   const { todayReports, members, scores, balances, meetings, week, fines } = await getData()
 
-  const submittedToday = todayReports.filter((r:any) => r.report_status === 'submitted').length
+  const submittedToday = todayReports.filter((r:any) => r.status === 'submitted').length
   const totalToday = members.length
   const allGood = submittedToday === totalToday && totalToday > 0
 
@@ -81,12 +81,12 @@ export default async function DashboardPage() {
       {/* KPI строка */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <div className="bg-surface border border-border rounded-2xl p-5">
-          <div className="text-[11px] text-muted font-mono uppercase tracking-wider mb-1">Отчёты сегодня</div>
+          <div className="text-[11px] text-muted font-mono uppercase tracking-wider mb-1">Отчёты вчера</div>
           <div className={`text-3xl font-extrabold tracking-tighter ${allGood ? 'text-c-green' : submittedToday === 0 ? 'text-c-red' : 'text-c-orange'}`}>
             {submittedToday}/{totalToday}
           </div>
           <div className="text-[11px] text-muted mt-1">
-            {allGood ? '✅ Все сдали!' : `осталось ${totalToday - submittedToday}`}
+            {allGood ? '✅ Все сдали!' : `не сдали ${totalToday - submittedToday}`}
           </div>
         </div>
         <div className="bg-surface border border-border rounded-2xl p-5">
@@ -117,7 +117,7 @@ export default async function DashboardPage() {
         {/* Отчёты сегодня */}
         <div className="bg-surface border border-border rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <div className="text-[14px] font-bold">📋 Отчёты сегодня</div>
+            <div className="text-[14px] font-bold">📋 Отчёты вчера</div>
             <div className={`text-[12px] font-semibold ${allGood?'text-c-green':'text-muted'}`}>
               {submittedToday}/{totalToday}
             </div>
@@ -126,9 +126,9 @@ export default async function DashboardPage() {
             {todayReports.map((r:any) => (
               <div key={r.member_id} className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-xl flex items-center justify-center text-[13px] font-bold flex-shrink-0"
-                  style={{background:'rgba(124,106,255,0.15)',color:'#a78bfa'}}>{r.name.charAt(0)}</div>
-                <div className="flex-1 text-[13px] font-medium">{r.name}</div>
-                {r.report_status === 'submitted' ? (
+                  style={{background:'rgba(124,106,255,0.15)',color:'#a78bfa'}}>{r.members?.name?.charAt(0)}</div>
+                <div className="flex-1 text-[13px] font-medium">{r.members?.name}</div>
+                {r.status === 'submitted' ? (
                   <span className="text-[11px] font-bold text-c-green bg-c-green/10 px-2.5 py-1 rounded-full">✓ сдал</span>
                 ) : (
                   <span className="text-[11px] font-bold text-c-red bg-c-red/10 px-2.5 py-1 rounded-full">✗ нет</span>
