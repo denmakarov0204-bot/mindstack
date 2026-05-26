@@ -1,8 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/cron?secret=CRON_SECRET_PLACEHOLDER",
+      "path": "/api/cron",
       "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/morning",
+      "schedule": "0 3 * * *"
     }
   ]
 }
