@@ -16,7 +16,6 @@ const navMeetings = [
 
 const navFinance = [
   { label: 'Штрафы', href: '/fines', icon: '◆', dot: true },
-  { label: 'Банк', href: '/bank', icon: '◉' },
 ]
 
 const navAI = [
@@ -28,8 +27,8 @@ const mobileNav = [
   { label: 'Dashboard', href: '/dashboard', icon: '◈' },
   { label: 'Отчёты', href: '/reports', icon: '◇', dot: true },
   { label: 'Встречи', href: '/meetings', icon: '▷' },
+  { label: 'Задачи', href: '/tasks', icon: '◈' },
   { label: 'Штрафы', href: '/fines', icon: '◆', dot: true },
-  { label: 'Аналитика', href: '/analytics', icon: '✦' },
 ]
 
 export default function Sidebar() {
