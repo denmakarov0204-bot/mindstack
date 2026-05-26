@@ -28,7 +28,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const yesterday = new Date()
+  // Используем московское время UTC+3
+  const mskNow = new Date(Date.now() + 3*60*60*1000)
+  const yesterday = new Date(mskNow)
   yesterday.setDate(yesterday.getDate() - 1)
   const dateStr = yesterday.toISOString().split('T')[0]
 
