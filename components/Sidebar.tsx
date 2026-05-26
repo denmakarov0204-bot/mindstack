@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 
 const nav = [
@@ -27,12 +28,34 @@ const mobileNav = [
   { label: 'Dashboard', href: '/dashboard', icon: '◈' },
   { label: 'Отчёты', href: '/reports', icon: '◇', dot: true },
   { label: 'Встречи', href: '/meetings', icon: '▷' },
-  { label: 'Задачи', href: '/tasks', icon: '◈' },
   { label: 'Штрафы', href: '/fines', icon: '◆', dot: true },
+  { label: 'Аналитика', href: '/analytics', icon: '✦' },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const [title, setTitle] = useState('MindStack')
+  const [editing, setEditing] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebar_title')
+    if (saved) setTitle(saved)
+  }, [])
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  function saveTitle(value: string) {
+    const trimmed = value.trim() || 'MindStack'
+    setTitle(trimmed)
+    localStorage.setItem('sidebar_title', trimmed)
+    setEditing(false)
+  }
 
   return (
     <>
@@ -46,7 +69,29 @@ export default function Sidebar() {
               ⚡
             </div>
             <div>
-              <div className="text-[15px] font-bold tracking-tight">MindStack</div>
+              {editing ? (
+                <input
+                  ref={inputRef}
+                  className="text-[15px] font-bold tracking-tight bg-transparent border-b border-accent2 outline-none text-white w-[130px]"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  onBlur={e => saveTitle(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') saveTitle((e.target as HTMLInputElement).value)
+                    if (e.key === 'Escape') setEditing(false)
+                  }}
+                  maxLength={30}
+                />
+              ) : (
+                <div
+                  className="text-[15px] font-bold tracking-tight cursor-pointer hover:text-accent2 transition-colors group flex items-center gap-1"
+                  onClick={() => setEditing(true)}
+                  title="Нажми чтобы изменить"
+                >
+                  {title}
+                  <span className="text-[10px] text-muted opacity-0 group-hover:opacity-100 transition-opacity">✎</span>
+                </div>
+              )}
               <div className="text-[10px] text-muted font-mono tracking-widest">MASTERMIND OS</div>
             </div>
           </div>
