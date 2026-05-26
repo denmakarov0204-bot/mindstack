@@ -53,6 +53,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
+  // /chatid — узнать ID чата (для настройки)
+  if (text === '/chatid' || text.startsWith('/chatid@')) {
+    await sendMessage(chatId, `🆔 Chat ID: <code>${chatId}</code>\nThread ID: <code>${threadId || 0}</code>`, isGroup ? msgId : undefined, threadId)
+    return NextResponse.json({ ok: true })
+  }
+
   // /start /help
   if (text === '/start' || text.startsWith('/start@') || text === '/help' || text.startsWith('/help@')) {
     if (!isGroup) {
