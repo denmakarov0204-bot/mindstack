@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!
-const REPORT_TOPIC_ID = parseInt(process.env.REPORT_TOPIC_ID || '0')
+const REPORT_TOPIC_ID = parseInt(process.env.REPORT_TOPIC_ID || '2')
+const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID ? parseInt(process.env.GROUP_CHAT_ID) : null
 
-async function sendMessage(chatId: number, text: string, threadId?: number) {
-  const body: any = { chat_id: chatId, text, parse_mode: 'HTML' }
-  if (threadId) body.message_thread_id = threadId
+async function sendToGroup(text: string) {
+  if (!GROUP_CHAT_ID) return
+  const body: any = { chat_id: GROUP_CHAT_ID, text, parse_mode: 'HTML' }
+  if (REPORT_TOPIC_ID) body.message_thread_id = REPORT_TOPIC_ID
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -27,7 +29,6 @@ export async function GET(req: NextRequest) {
   const dateStr = yesterday.toISOString().split('T')[0]
   const dateFormatted = yesterday.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
 
-  // Получаем статус отчётов за вчера
   const { data: members } = await supabase
     .from('members')
     .select('id, name, telegram_id')
@@ -48,32 +49,16 @@ export async function GET(req: NextRequest) {
   let text = ''
 
   if (missing.length === 0) {
-    // Все сдали — отправляем в общий чат/тему
-    text = `🌅 <b>Доброе утро! Итоги ${dateFormatted}</b>\n\n✅ Все сдали отчёт! Молодцы! 💪\n\n${submitted.map(m => `✓ ${m.name.split(' ')[0]}`).join('\n')}`
-    
-    // Отправляем в тему (если есть)
-    const { data: chats } = await supabase.from('members').select('telegram_id').eq('is_active', true).limit(1)
-    
-    // Ищем chat_id группы из переменных окружения или отправляем всем лично
-    // Отправляем каждому участнику лично
-    for (const m of members) {
-      if (m.telegram_id) {
-        await sendMessage(m.telegram_id, text)
-      }
-    }
+    text = `🌅 <b>Итоги ${dateFormatted}</b>\n\n🏆 Все сдали отчёт! Молодцы! 💪\n\n${submitted.map(m => `✅ ${m.name}`).join('\n')}`
   } else {
-    // Есть должники — отправляем сводку каждому
-    const missingNames = missing.map(m => `❌ ${m.name}`).join('\n')
-    const submittedNames = submitted.length > 0 ? submitted.map(m => `✅ ${m.name.split(' ')[0]}`).join('  ') : '—'
-
-    text = `🌅 <b>Доброе утро! Итоги ${dateFormatted}</b>\n\n${missingNames}\n\n<i>не сдали отчёт вчера</i>\n\nСдали: ${submittedNames}`
-
-    for (const m of members) {
-      if (m.telegram_id) {
-        await sendMessage(m.telegram_id, text)
-      }
-    }
+    const missingLines = missing.map(m => `❌ ${m.name}`).join('\n')
+    const submittedLine = submitted.length > 0
+      ? '\n\n' + submitted.map(m => `✅ ${m.name}`).join('\n')
+      : ''
+    text = `🌅 <b>Итоги ${dateFormatted}</b>\n\n${missingLines}\n<i>— не сдали отчёт</i>${submittedLine}`
   }
+
+  await sendToGroup(text)
 
   return NextResponse.json({ ok: true, date: dateStr, missing: missing.length, submitted: submitted.length })
 }
