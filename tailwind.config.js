@@ -22,8 +22,10 @@ module.exports = {
         border2: 'rgba(255,255,255,0.12)',
       },
       fontFamily: {
-        sans: ['var(--font-syne)', 'sans-serif'],
+        sans: ['var(--font-forma)', 'sans-serif'],
+        syne: ['var(--font-syne)', 'sans-serif'],
         mono: ['var(--font-jetbrains)', 'monospace'],
+        forma: ['var(--font-forma)', 'sans-serif'],
       },
     },
   },
