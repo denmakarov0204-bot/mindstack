@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   const msgId = msg.message_id
   const threadId = msg.message_thread_id
   const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup'
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date(Date.now() + 3*60*60*1000).toISOString().split('T')[0] // Moscow UTC+3
 
   // /setreporttopic — admin устанавливает тему для отчётов
   if (text === '/setreporttopic' || text.startsWith('/setreporttopic@')) {
