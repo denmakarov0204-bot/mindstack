@@ -1,103 +1,245 @@
+'use client'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
-export const revalidate = 60
+type Member = { id: string; name: string }
+type Report = { id: string; member_id: string; date: string; status: string; submitted_at: string | null; content: string | null }
 
-async function getData() {
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  const [{ data: reports }, { data: members }] = await Promise.all([
-    supabase.from('daily_reports')
-      .select('*, members(name, telegram_username)')
-      .gte('date', sevenDaysAgo)
-      .order('date', { ascending: false })
-      .order('submitted_at', { ascending: false }),
-    supabase.from('members').select('id, name').order('name'),
-  ])
-  return { reports: reports || [], members: members || [] }
-}
+export default function ReportsPage() {
+  const [members, setMembers] = useState<Member[]>([])
+  const [reports, setReports] = useState<Report[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState<string | null>(null)  // memberId_date
 
-const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
+  // Форма ручного добавления
+  const [showManual, setShowManual] = useState(false)
+  const [manualMember, setManualMember] = useState('')
+  const [manualDate, setManualDate] = useState(new Date(Date.now() + 3*60*60*1000).toISOString().split('T')[0])
+  const [manualContent, setManualContent] = useState('')
+  const [adding, setAdding] = useState(false)
 
-export default async function ReportsPage() {
-  const { reports, members } = await getData()
+  async function load() {
+    const ago7 = new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0]
+    const [{ data: r }, { data: m }] = await Promise.all([
+      supabase.from('daily_reports').select('*').gte('date', ago7).order('date', { ascending: false }),
+      supabase.from('members').select('id, name').eq('is_active', true).order('name'),
+    ])
+    setReports(r || [])
+    setMembers(m || [])
+    setLoading(false)
+  }
 
-  // Группируем по датам
-  const byDate: Record<string, any[]> = {}
-  reports.forEach((r: any) => {
-    if (!byDate[r.date]) byDate[r.date] = []
-    byDate[r.date].push(r)
+  useEffect(() => { load() }, [])
+
+  // Дни за последние 7 дней
+  const days = Array.from({length: 7}, (_, i) => {
+    const d = new Date(Date.now() + 3*60*60*1000)
+    d.setDate(d.getDate() - i)
+    return d.toISOString().split('T')[0]
   })
-  const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a))
 
-  const submitted7 = reports.filter((r: any) => r.status === 'submitted').length
-  const total7 = members.length * 7
-  const rate = Math.round((submitted7 / total7) * 100)
+  function getReport(memberId: string, date: string) {
+    return reports.find(r => r.member_id === memberId && r.date === date)
+  }
+
+  // Отметить отчёт вручную
+  async function markSubmitted(memberId: string, date: string) {
+    const key = memberId + '_' + date
+    setSaving(key)
+    const existing = getReport(memberId, date)
+    if (existing) {
+      // Обновляем статус
+      await supabase.from('daily_reports').update({
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+        content: existing.content || 'Отмечено вручную'
+      }).eq('id', existing.id)
+    } else {
+      // Создаём новую запись
+      await supabase.from('daily_reports').insert({
+        member_id: memberId,
+        date,
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+        content: 'Отмечено вручную'
+      })
+    }
+    setSaving(null)
+    load()
+  }
+
+  // Убрать отметку
+  async function markMissing(memberId: string, date: string) {
+    const key = memberId + '_' + date
+    setSaving(key)
+    const existing = getReport(memberId, date)
+    if (existing) {
+      await supabase.from('daily_reports').delete().eq('id', existing.id)
+    }
+    setSaving(null)
+    load()
+  }
+
+  // Добавить с контентом
+  async function addManual() {
+    if (!manualMember || !manualDate) return
+    setAdding(true)
+    const existing = getReport(manualMember, manualDate)
+    if (existing) {
+      await supabase.from('daily_reports').update({
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+        content: manualContent || 'Отмечено вручную'
+      }).eq('id', existing.id)
+    } else {
+      await supabase.from('daily_reports').insert({
+        member_id: manualMember,
+        date: manualDate,
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+        content: manualContent || 'Отмечено вручную'
+      })
+    }
+    setShowManual(false)
+    setManualContent('')
+    setAdding(false)
+    load()
+  }
+
+  const dayNames: Record<string, string> = { '0': 'Вс', '1': 'Пн', '2': 'Вт', '3': 'Ср', '4': 'Чт', '5': 'Пт', '6': 'Сб' }
+
+  if (loading) return <div className="p-8 text-muted text-[14px]">Загрузка...</div>
 
   return (
-    <div className="p-8 animate-fade-in max-w-[900px]">
-      <div className="flex items-start justify-between mb-7">
+    <div className="p-6 md:p-8 max-w-[1100px] animate-fade-in">
+      <div className="flex items-center justify-between mb-7">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Отчёты</h1>
-          <p className="text-[13px] text-muted mt-1">Ежедневные отчёты за последние 7 дней</p>
+          <p className="text-[13px] text-muted mt-1">Последние 7 дней</p>
         </div>
-        <div className="bg-surface border border-border rounded-xl px-5 py-3 text-center">
-          <div className="text-[11px] text-muted font-mono uppercase">Заполняемость</div>
-          <div className={`text-3xl font-extrabold mt-1 ${rate >= 80 ? 'text-c-green' : 'text-c-red'}`}>{rate}%</div>
-          <div className="text-[11px] text-muted">{submitted7} из {total7}</div>
+        <button
+          onClick={() => setShowManual(v => !v)}
+          className="flex items-center gap-2 px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[13px] font-bold rounded-xl transition-colors"
+        >
+          ✏️ Отметить вручную
+        </button>
+      </div>
+
+      {/* Форма ручного добавления */}
+      {showManual && (
+        <div className="bg-surface border border-accent/30 rounded-2xl p-5 mb-6">
+          <div className="text-[14px] font-bold mb-4">✏️ Ручная отметка отчёта</div>
+          <div className="flex flex-wrap gap-3 mb-3">
+            <select
+              value={manualMember}
+              onChange={e => setManualMember(e.target.value)}
+              className="flex-1 min-w-[160px] bg-surface2 border border-border rounded-xl px-3 py-2 text-[13px] focus:outline-none focus:border-accent"
+            >
+              <option value="">Выбери участника...</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <input
+              type="date"
+              value={manualDate}
+              onChange={e => setManualDate(e.target.value)}
+              className="bg-surface2 border border-border rounded-xl px-3 py-2 text-[13px] focus:outline-none focus:border-accent"
+            />
+          </div>
+          <textarea
+            value={manualContent}
+            onChange={e => setManualContent(e.target.value)}
+            placeholder="Содержание отчёта (необязательно)"
+            rows={2}
+            className="w-full bg-surface2 border border-border rounded-xl px-3 py-2 text-[13px] mb-3 focus:outline-none focus:border-accent resize-none"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={addManual}
+              disabled={!manualMember || !manualDate || adding}
+              className="px-4 py-2 bg-accent/20 hover:bg-accent/30 text-accent2 text-[13px] font-bold rounded-xl disabled:opacity-40"
+            >
+              {adding ? 'Добавляю...' : '✓ Отметить сданным'}
+            </button>
+            <button onClick={() => setShowManual(false)} className="text-muted text-[13px] hover:text-foreground">
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Таблица отчётов */}
+      <div className="bg-surface border border-border rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-5 py-3 text-[11px] text-muted font-mono uppercase tracking-wider w-[160px]">
+                  Участник
+                </th>
+                {days.map(d => {
+                  const date = new Date(d)
+                  const dow = dayNames[String(date.getUTCDay())]
+                  const isToday = d === new Date(Date.now() + 3*60*60*1000).toISOString().split('T')[0]
+                  return (
+                    <th key={d} className="px-2 py-3 text-center min-w-[80px]">
+                      <div className={`text-[11px] font-mono ${isToday ? 'text-accent2 font-bold' : 'text-muted'}`}>{dow}</div>
+                      <div className={`text-[10px] ${isToday ? 'text-accent2' : 'text-muted'}`}>
+                        {date.getUTCDate()}.{String(date.getUTCMonth()+1).padStart(2,'0')}
+                      </div>
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((m, idx) => (
+                <tr key={m.id} className={`border-b border-border last:border-0 ${idx % 2 === 0 ? '' : 'bg-surface2/30'}`}>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-bold flex-shrink-0"
+                        style={{background:'rgba(124,106,255,0.15)',color:'#a78bfa'}}>{m.name.charAt(0)}</div>
+                      <span className="text-[13px] font-medium">{m.name.split(' ')[0]}</span>
+                    </div>
+                  </td>
+                  {days.map(d => {
+                    const report = getReport(m.id, d)
+                    const submitted = report?.status === 'submitted'
+                    const key = m.id + '_' + d
+                    const isSaving = saving === key
+                    const isManual = report?.content === 'Отмечено вручную' || report?.content === 'Отчёт добавлен вручную администратором'
+
+                    return (
+                      <td key={d} className="px-2 py-3 text-center">
+                        <button
+                          onClick={() => submitted ? markMissing(m.id, d) : markSubmitted(m.id, d)}
+                          disabled={isSaving}
+                          title={submitted ? 'Нажми чтобы убрать отметку' : 'Нажми чтобы отметить сданным'}
+                          className="group relative inline-flex items-center justify-center w-8 h-8 rounded-lg transition-all disabled:opacity-40"
+                        >
+                          {isSaving ? (
+                            <span className="text-[14px] animate-spin inline-block">⟳</span>
+                          ) : submitted ? (
+                            <span className={`text-[16px] ${isManual ? 'opacity-60' : ''}`} title={isManual ? 'Отмечено вручную' : ''}>
+                              ✅
+                            </span>
+                          ) : (
+                            <span className="text-[16px] opacity-30 group-hover:opacity-70 transition-opacity">○</span>
+                          )}
+                        </button>
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div className="flex flex-col gap-5">
-        {dates.map(date => {
-          const d = new Date(date)
-          const dayReports = byDate[date]
-          const submittedCount = dayReports.filter((r: any) => r.status === 'submitted').length
-
-          return (
-            <div key={date} className="bg-surface border border-border rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <span className="text-[11px] text-muted font-mono uppercase tracking-wider">
-                    {days[d.getDay()]}
-                  </span>
-                  <div className="text-[15px] font-bold mt-0.5">
-                    {d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
-                  </div>
-                </div>
-                <div className={`text-[13px] font-bold font-mono ${submittedCount === members.length ? 'text-c-green' : submittedCount === 0 ? 'text-c-red' : 'text-c-orange'}`}>
-                  {submittedCount}/{members.length}
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                {dayReports.map((r: any) => (
-                  <div key={r.id} className="flex items-start gap-3 py-2 border-b border-border last:border-0">
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-bold flex-shrink-0 mt-0.5"
-                      style={{ background: 'rgba(124,106,255,0.15)', color: '#a78bfa' }}>
-                      {r.members?.name?.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-[13px] font-semibold">{r.members?.name}</span>
-                        {r.submitted_at && (
-                          <span className="text-[11px] text-muted font-mono">
-                            {new Date(r.submitted_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        )}
-                      </div>
-                      {r.content && (
-                        <div className="text-[12px] text-muted leading-relaxed line-clamp-2">{r.content}</div>
-                      )}
-                    </div>
-                    <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full flex-shrink-0 ${
-                      r.status === 'submitted' ? 'bg-c-green/10 text-c-green' : 'bg-c-red/10 text-c-red'
-                    }`}>
-                      {r.status === 'submitted' ? 'сдал' : 'не сдал'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )
-        })}
+      <div className="mt-3 flex gap-4 text-[11px] text-muted">
+        <span>✅ — сдал</span>
+        <span className="opacity-60">✅ — отмечено вручную</span>
+        <span>○ — не сдал (нажми чтобы отметить)</span>
       </div>
     </div>
   )
