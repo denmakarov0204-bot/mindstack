@@ -1,20 +1,14 @@
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
-// Временный endpoint: исправляет даты отчётов, сохранённых как сегодня
-// но отправленных до 06:00 МСК (до 03:00 UTC) — меняет на вчера
+// Временный endpoint: исправляет даты отчётов, сохранённых под сегодняшней датой
+// но отправленных до 06:00 МСК (до 03:00 UTC) — переносит на вчера
 export async function GET() {
   const now = new Date()
   const todayStr = now.toISOString().split('T')[0]
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
   const yesterdayStr = yesterday.toISOString().split('T')[0]
-  // До 06:00 МСК = до 03:00 UTC сегодня
   const cutoff = todayStr + 'T03:00:00.000Z'
 
   const { data: toFix, error: fetchError } = await supabase
@@ -46,6 +40,6 @@ export async function GET() {
     fixed: toFix.length,
     from: todayStr,
     to: yesterdayStr,
-    records: toFix.map((r: any) => ({ id: r.id, member_id: r.member_id, submitted_at: r.submitted_at })),
+    records: toFix.map((r: any) => ({ id: r.id, submitted_at: r.submitted_at })),
   })
 }
