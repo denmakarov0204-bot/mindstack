@@ -8,7 +8,7 @@ import AIInsightsCard from '@/components/dashboard/AIInsightsCard'
 import MeetingCard from '@/components/dashboard/MeetingCard'
 import StatsRow from '@/components/dashboard/StatsRow'
 
-export const revalidate = 60 // revalidate every 60s
+export const dynamic = 'force-dynamic' // always fetch fresh data
 
 async function getData() {
   // Московское время UTC+3
