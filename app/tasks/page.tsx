@@ -328,7 +328,7 @@ function TaskCard({
           </span>
         )}
       </div>
-      <button onClick={() => setMenuOpen(v => !v)} className="absolute top-2.5 right-2.5 text-muted hover:text-white text-[14px] opacity-0 group-hover:opacity-100 transition-opacity">···</button>
+      <button onClick={() => setMenuOpen(v => !v)} className="absolute top-2.5 right-2.5 text-muted hover:text-white text-[14px] transition-colors">···</button>
       {menuOpen && (
         <div className="absolute right-2 top-8 z-20 bg-surface2 border border-border2 rounded-lg py-1 shadow-xl min-w-[150px]" onMouseLeave={() => setMenuOpen(false)}>
           {task.status !== 'todo' && <button onClick={() => { onStatusChange(task.id, 'todo'); setMenuOpen(false) }} className="w-full text-left px-3 py-1.5 text-[12px] text-c-orange hover:bg-surface transition-colors">К выполнению</button>}
