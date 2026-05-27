@@ -7,7 +7,6 @@ interface Task {
   meeting_id: string | null
   member_id: string | null
   title: string
-  description: string | null
   status: 'todo' | 'in_progress' | 'done'
   due_date: string | null
   created_at: string
@@ -60,7 +59,6 @@ export default function TasksPage() {
   const [adding, setAdding] = useState(false)
   const [newTask, setNewTask] = useState({
     title: '',
-    description: '',
     member_id: '',
     due_date: '',
     status: 'todo',
@@ -119,7 +117,6 @@ export default function TasksPage() {
       title: newTask.title.trim(),
       status: newTask.status,
     }
-    if (newTask.description.trim()) insertData.description = newTask.description.trim()
     if (newTask.member_id) insertData.member_id = newTask.member_id
     if (newTask.due_date) insertData.due_date = newTask.due_date
 
@@ -142,7 +139,7 @@ export default function TasksPage() {
       setTasks(prev => [added, ...prev])
     }
 
-    setNewTask({ title: '', description: '', member_id: '', due_date: '', status: 'todo' })
+    setNewTask({ title: '', member_id: '', due_date: '', status: 'todo' })
     setShowAddForm(false)
     setAdding(false)
   }
