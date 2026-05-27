@@ -11,15 +11,19 @@ import StatsRow from '@/components/dashboard/StatsRow'
 export const revalidate = 60 // revalidate every 60s
 
 async function getData() {
-  // Вчерашняя дата по московскому времени (UTC+3)
+  // Московское время UTC+3
   const mskNow = new Date(Date.now() + 3 * 60 * 60 * 1000)
+
+  // Вчерашняя дата по МСК
   const mskYesterday = new Date(mskNow)
   mskYesterday.setDate(mskYesterday.getDate() - 1)
   const yesterdayStr = mskYesterday.toISOString().split('T')[0]
+  const todayStr = mskNow.toISOString().split('T')[0]
 
   const [
     { data: allMembers },
     { data: yesterdayReports },
+    { data: todayDbReports },
     { data: fineBalances },
     { data: disciplineScores },
     { data: meetings },
@@ -27,6 +31,7 @@ async function getData() {
   ] = await Promise.all([
     supabase.from('members').select('id, name, telegram_username').eq('is_active', true),
     supabase.from('daily_reports').select('member_id, status, submitted_at').eq('date', yesterdayStr),
+    supabase.from('daily_reports').select('member_id, status, submitted_at').eq('date', todayStr),
     supabase.from('member_fine_balance').select('*').order('debt', { ascending: false }),
     supabase.from('discipline_scores').select('*').order('score', { ascending: false }),
     supabase.from('meetings').select('*').order('date', { ascending: false }).limit(5),
@@ -35,8 +40,15 @@ async function getData() {
       .gte('date', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]),
   ])
 
-  // Строим статус каждого участника за вчера
-  const reportsMap = new Map((yesterdayReports || []).map((r: any) => [r.member_id, r]))
+  // Выбираем дату: вчера если есть сданные отчёты, иначе сегодня
+  // (фоллбэк на случай если отчёты сохранились под сегодняшней датой из-за старой логики бота)
+  const yesterdaySubmitted = (yesterdayReports || []).filter((r: any) => r.status === 'submitted').length
+
+  const activeReports = yesterdaySubmitted > 0 ? (yesterdayReports || []) : (todayDbReports || [])
+  const activeDate = yesterdaySubmitted > 0 ? yesterdayStr : todayStr
+
+  // Строим статус каждого участника
+  const reportsMap = new Map(activeReports.map((r: any) => [r.member_id, r]))
   const todayReports = (allMembers || []).map((m: any) => ({
     id: m.id,
     name: m.name,
@@ -47,7 +59,7 @@ async function getData() {
 
   return {
     todayReports,
-    yesterdayStr,
+    activeDate,
     fineBalances: (fineBalances as MemberFineBalance[]) || [],
     disciplineScores: (disciplineScores as DisciplineScore[]) || [],
     meetings: (meetings as Meeting[]) || [],
@@ -56,7 +68,7 @@ async function getData() {
 }
 
 export default async function DashboardPage() {
-  const { todayReports, yesterdayStr, fineBalances, disciplineScores, meetings, reportsWeek } = await getData()
+  const { todayReports, activeDate, fineBalances, disciplineScores, meetings, reportsWeek } = await getData()
 
   const submittedToday = todayReports.filter(r => r.report_status === 'submitted').length
   const totalFines = fineBalances.reduce((sum, m) => sum + m.total_charged, 0)
@@ -65,8 +77,8 @@ export default async function DashboardPage() {
   const nextMeeting = meetings.find(m => m.status === 'planned')
   const bestStreak = disciplineScores[0]
 
-  // Форматируем дату вчера для отображения
-  const reportDateLabel = new Date(yesterdayStr + 'T12:00:00Z').toLocaleDateString('ru-RU', {
+  // Форматируем дату для заголовка
+  const reportDateLabel = new Date(activeDate + 'T12:00:00Z').toLocaleDateString('ru-RU', {
     day: 'numeric',
     month: 'long',
   })
