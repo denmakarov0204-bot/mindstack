@@ -1,8 +1,9 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
+import { supabase } from '@/lib/supabase'
 
 const nav = [
   { label: 'Dashboard', href: '/dashboard', icon: '◈' },
@@ -23,7 +24,6 @@ const navAI = [
   { label: 'Аналитика', href: '/analytics', icon: '✦' },
 ]
 
-// Tabs shown in mobile bottom bar (most important pages)
 const mobileNav = [
   { label: 'Dashboard', href: '/dashboard', icon: '◈' },
   { label: 'Отчёты', href: '/reports', icon: '◇', dot: true },
@@ -34,32 +34,31 @@ const mobileNav = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const [title, setTitle] = useState('MindStack')
-  const [editing, setEditing] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [nextMeeting, setNextMeeting] = useState<{ date: string; daysLeft: number } | null>(null)
 
   useEffect(() => {
-    const saved = localStorage.getItem('sidebar_title')
-    if (saved) setTitle(saved)
+    supabase
+      .from('meetings')
+      .select('date')
+      .eq('status', 'planned')
+      .gte('date', new Date().toISOString().split('T')[0])
+      .order('date', { ascending: true })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const [y, m, d] = data[0].date.split('-').map(Number)
+          const meetingDate = new Date(y, m - 1, d)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          const daysLeft = Math.round((meetingDate.getTime() - today.getTime()) / 86400000)
+          setNextMeeting({ date: data[0].date, daysLeft })
+        }
+      })
   }, [])
-
-  useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
-    }
-  }, [editing])
-
-  function saveTitle(value: string) {
-    const trimmed = value.trim() || 'MindStack'
-    setTitle(trimmed)
-    localStorage.setItem('sidebar_title', trimmed)
-    setEditing(false)
-  }
 
   return (
     <>
-      {/* ── Desktop sidebar (hidden on mobile) ── */}
+      {/* Desktop sidebar */}
       <aside className="font-sidebar hidden md:flex w-[220px] flex-shrink-0 bg-surface border-r border-border flex-col sticky top-0 h-screen">
         {/* Logo */}
         <div className="px-5 pb-6 pt-6 border-b border-border mb-4">
@@ -69,29 +68,7 @@ export default function Sidebar() {
               ⚡
             </div>
             <div>
-              {editing ? (
-                <input
-                  ref={inputRef}
-                  className="text-[15px] font-bold tracking-tight bg-transparent border-b border-accent2 outline-none text-white w-[130px]"
-                  value={title}
-                  onChange={e => setTitle(e.target.value)}
-                  onBlur={e => saveTitle(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') saveTitle((e.target as HTMLInputElement).value)
-                    if (e.key === 'Escape') setEditing(false)
-                  }}
-                  maxLength={30}
-                />
-              ) : (
-                <div
-                  className="text-[15px] font-bold tracking-tight cursor-pointer hover:text-accent2 transition-colors group flex items-center gap-1"
-                  onClick={() => setEditing(true)}
-                  title="Нажми чтобы изменить"
-                >
-                  {title}
-                  <span className="text-[10px] text-muted opacity-0 group-hover:opacity-100 transition-opacity">✎</span>
-                </div>
-              )}
+              <div className="text-[15px] font-bold tracking-tight">MindStack</div>
               <div className="text-[10px] text-muted font-mono tracking-widest">MASTERMIND OS</div>
             </div>
           </div>
@@ -120,16 +97,25 @@ export default function Sidebar() {
         </nav>
 
         {/* Next meeting badge */}
-        <div className="px-3 pb-5 pt-4 border-t border-border">
-          <div className="bg-surface2 border border-border2 rounded-lg p-3">
-            <div className="text-[10px] text-muted font-mono tracking-widest uppercase">Следующая встреча</div>
-            <div className="text-[13px] font-semibold mt-0.5">Сб, 31 мая</div>
-            <div className="text-[11px] text-c-green mt-0.5">⏱ через 8 дней</div>
+        {nextMeeting && (
+          <div className="px-3 pb-5 pt-4 border-t border-border">
+            <div className="bg-surface2 border border-border2 rounded-lg p-3">
+              <div className="text-[10px] text-muted font-mono tracking-widest uppercase">Следующая встреча</div>
+              <div className="text-[13px] font-semibold mt-0.5">
+                {(() => {
+                  const [y, m, d] = nextMeeting.date.split('-').map(Number)
+                  return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' })
+                })()}
+              </div>
+              <div className="text-[11px] text-c-green mt-0.5">
+                {nextMeeting.daysLeft === 0 ? '⚡ сегодня' : nextMeeting.daysLeft === 1 ? '⚡ завтра' : `⏱ через ${nextMeeting.daysLeft} дн.`}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </aside>
 
-      {/* ── Mobile bottom tab bar (visible only on mobile) ── */}
+      {/* Mobile bottom tab bar */}
       <nav className="font-sidebar md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface border-t border-border flex items-stretch"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {mobileNav.map(item => (
