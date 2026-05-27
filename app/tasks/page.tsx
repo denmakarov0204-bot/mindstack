@@ -256,12 +256,8 @@ export default function TasksPage() {
               onKeyDown={e => e.key === 'Enter' && !adding && addTask()}
               autoFocus
             />
-            <input
-              className="bg-surface2 border border-border2 rounded-lg px-3 py-2 text-[13px] text-white placeholder-muted outline-none focus:border-accent transition-colors"
-              placeholder="Описание (необязательно)..."
-              value={newTask.description}
-              onChange={e => setNewTask({ ...newTask, description: e.target.value })}
-            />
+            
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <select
                 className="bg-surface2 border border-border2 rounded-lg px-3 py-2 text-[13px] text-white outline-none focus:border-accent transition-colors"
