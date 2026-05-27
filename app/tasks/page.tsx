@@ -54,6 +54,10 @@ export default function TasksPage() {
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [showMeetingForm, setShowMeetingForm] = useState(false)
+  const [meetingExtract, setMeetingExtract] = useState({ meeting_id: '', summary: '' })
+  const [extracting, setExtracting] = useState(false)
+  const [extractResult, setExtractResult] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [newTask, setNewTask] = useState({
     text: '',
@@ -124,6 +128,30 @@ export default function TasksPage() {
     }
   }
 
+  async function extractFromMeeting() {
+    if (!meetingExtract.summary.trim()) return
+    setExtracting(true)
+    setExtractResult(null)
+    try {
+      const res = await fetch('/api/extract-meeting-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meeting_id: meetingExtract.meeting_id || null, summary: meetingExtract.summary, members }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        setExtractResult('Ошибка: ' + data.error)
+      } else if (data.count === 0) {
+        setExtractResult('ИИ не нашёл задач в тексте встречи')
+      } else {
+        setExtractResult('✓ Создано задач: ' + data.count)
+        await loadData()
+        setTimeout(() => { setShowMeetingForm(false); setMeetingExtract({ meeting_id: '', summary: '' }); setExtractResult(null) }, 2000)
+      }
+    } catch { setExtractResult('Ошибка соединения. Попробуй ещё раз.') }
+    setExtracting(false)
+  }
+
   async function runAnalysis() {
     setAnalyzing(true)
     setAnalysis(null)
@@ -167,7 +195,14 @@ export default function TasksPage() {
             <span className="hidden sm:inline">{analyzing ? 'Анализирую...' : 'ИИ Анализ'}</span>
           </button>
           <button
-            onClick={() => setShowAddForm(v => !v)}
+            onClick={() => { setShowMeetingForm(v => !v); setShowAddForm(false) }}
+            className="px-3 py-1.5 md:px-4 md:py-2 bg-surface2 border border-border2 hover:border-accent/50 text-white text-[12px] md:text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <span>◎</span>
+            <span className="hidden sm:inline">Из встречи</span>
+          </button>
+          <button
+            onClick={() => { setShowAddForm(v => !v); setShowMeetingForm(false) }}
             className="px-3 py-1.5 md:px-4 md:py-2 bg-accent hover:bg-accent2 text-white text-[12px] md:text-[13px] font-semibold rounded-lg transition-colors"
           >
             + Задача
@@ -214,6 +249,53 @@ export default function TasksPage() {
           ) : (
             <div className="text-[13px] text-[#d0d0d8] leading-relaxed whitespace-pre-wrap">{analysis}</div>
           )}
+        </div>
+      )}
+
+      {/* Extract from Meeting Form */}
+      {showMeetingForm && (
+        <div className="mb-6 bg-surface border border-border2 rounded-xl p-5 animate-fade-in">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-accent2">◎</span>
+            <span className="text-[13px] font-semibold text-white">Извлечь задачи из встречи</span>
+            <button onClick={() => setShowMeetingForm(false)} className="ml-auto text-muted hover:text-white text-[13px]">✕</button>
+          </div>
+          <div className="flex flex-col gap-3">
+            <select
+              className="bg-surface2 border border-border2 rounded-lg px-3 py-2 text-[13px] text-white outline-none focus:border-accent transition-colors"
+              value={meetingExtract.meeting_id}
+              onChange={e => setMeetingExtract({ ...meetingExtract, meeting_id: e.target.value })}
+            >
+              <option value="">Без привязки к встрече</option>
+              {meetings.map(m => (
+                <option key={m.id} value={m.id}>
+                  {'Встреча #' + m.meeting_number + ' — ' + new Date(m.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+                </option>
+              ))}
+            </select>
+            <textarea
+              className="bg-surface2 border border-border2 rounded-lg px-3 py-2 text-[13px] text-white placeholder-muted outline-none focus:border-accent transition-colors resize-none"
+              placeholder="Вставь конспект или заметки со встречи... ИИ сам найдёт задачи, исполнителей и сроки."
+              rows={6}
+              value={meetingExtract.summary}
+              onChange={e => setMeetingExtract({ ...meetingExtract, summary: e.target.value })}
+            />
+            {extractResult && (
+              <div className={extractResult.startsWith('✓') ? 'text-[12px] px-3 py-2 rounded-lg bg-c-green/10 text-c-green border border-c-green/20' : 'text-[12px] px-3 py-2 rounded-lg bg-c-red/10 text-c-red border border-c-red/20'}>
+                {extractResult}
+              </div>
+            )}
+            <div className="flex gap-2 justify-end mt-1">
+              <button onClick={() => setShowMeetingForm(false)} className="px-4 py-2 text-[13px] text-muted hover:text-white transition-colors">Отмена</button>
+              <button
+                onClick={extractFromMeeting}
+                disabled={extracting || !meetingExtract.summary.trim()}
+                className="px-4 py-2 bg-accent hover:bg-accent2 text-white text-[13px] font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {extracting ? '⏳ Анализирую...' : '✦ Извлечь задачи'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
