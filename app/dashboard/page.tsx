@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import type { TodayReportStatus, MemberFineBalance, DisciplineScore, Meeting } from '@/lib/supabase'
+import type { MemberFineBalance, DisciplineScore, Meeting } from '@/lib/supabase'
 import MembersCard from '@/components/dashboard/MembersCard'
 import BankCard from '@/components/dashboard/BankCard'
 import DisciplineCard from '@/components/dashboard/DisciplineCard'
@@ -11,14 +11,22 @@ import StatsRow from '@/components/dashboard/StatsRow'
 export const revalidate = 60 // revalidate every 60s
 
 async function getData() {
+  // Вчерашняя дата по московскому времени (UTC+3)
+  const mskNow = new Date(Date.now() + 3 * 60 * 60 * 1000)
+  const mskYesterday = new Date(mskNow)
+  mskYesterday.setDate(mskYesterday.getDate() - 1)
+  const yesterdayStr = mskYesterday.toISOString().split('T')[0]
+
   const [
-    { data: todayReports },
+    { data: allMembers },
+    { data: yesterdayReports },
     { data: fineBalances },
     { data: disciplineScores },
     { data: meetings },
     { data: reportsWeek },
   ] = await Promise.all([
-    supabase.from('today_report_status').select('*'),
+    supabase.from('members').select('id, name, telegram_username').eq('is_active', true),
+    supabase.from('daily_reports').select('member_id, status, submitted_at').eq('date', yesterdayStr),
     supabase.from('member_fine_balance').select('*').order('debt', { ascending: false }),
     supabase.from('discipline_scores').select('*').order('score', { ascending: false }),
     supabase.from('meetings').select('*').order('date', { ascending: false }).limit(5),
@@ -27,8 +35,19 @@ async function getData() {
       .gte('date', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]),
   ])
 
+  // Строим статус каждого участника за вчера
+  const reportsMap = new Map((yesterdayReports || []).map((r: any) => [r.member_id, r]))
+  const todayReports = (allMembers || []).map((m: any) => ({
+    id: m.id,
+    name: m.name,
+    telegram_username: m.telegram_username,
+    report_status: (reportsMap.get(m.id) as any)?.status || 'missing',
+    submitted_at: (reportsMap.get(m.id) as any)?.submitted_at || null,
+  }))
+
   return {
-    todayReports: (todayReports as TodayReportStatus[]) || [],
+    todayReports,
+    yesterdayStr,
     fineBalances: (fineBalances as MemberFineBalance[]) || [],
     disciplineScores: (disciplineScores as DisciplineScore[]) || [],
     meetings: (meetings as Meeting[]) || [],
@@ -37,7 +56,7 @@ async function getData() {
 }
 
 export default async function DashboardPage() {
-  const { todayReports, fineBalances, disciplineScores, meetings, reportsWeek } = await getData()
+  const { todayReports, yesterdayStr, fineBalances, disciplineScores, meetings, reportsWeek } = await getData()
 
   const submittedToday = todayReports.filter(r => r.report_status === 'submitted').length
   const totalFines = fineBalances.reduce((sum, m) => sum + m.total_charged, 0)
@@ -45,6 +64,12 @@ export default async function DashboardPage() {
   const completedMeetings = meetings.filter(m => m.status === 'completed').length
   const nextMeeting = meetings.find(m => m.status === 'planned')
   const bestStreak = disciplineScores[0]
+
+  // Форматируем дату вчера для отображения
+  const reportDateLabel = new Date(yesterdayStr + 'T12:00:00Z').toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+  })
 
   // Weekly activity по дням
   const days = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
@@ -68,7 +93,7 @@ export default async function DashboardPage() {
           <h1 className="text-xl md:text-2xl font-extrabold tracking-tight">Dashboard</h1>
           <p className="text-[12px] md:text-[13px] text-muted mt-1">
             {new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
-            {' · Неделя #12'}
+            {` · Отчёты за ${reportDateLabel}`}
           </p>
         </div>
         <button className="px-3 py-1.5 md:px-4 md:py-2 bg-accent hover:bg-accent2 text-white text-[12px] md:text-[13px] font-semibold rounded-lg transition-colors">
