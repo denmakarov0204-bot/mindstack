@@ -15,6 +15,14 @@ async function sendMessage(chatId: number, text: string, replyTo?: number, threa
   })
 }
 
+async function setReaction(chatId: number, messageId: number, emoji: string) {
+  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setMessageReaction`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, reaction: [{ type: 'emoji', emoji }] }),
+  })
+}
+
 async function getMember(telegramId: number) {
   const { data } = await supabase.from('members').select('*').eq('telegram_id', telegramId).single()
   return data
@@ -96,7 +104,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    await sendMessage(chatId, `✅ ${member.name}, отчёт за ${today} принят!`, messageId, threadId)
+    await setReaction(chatId, messageId, '✅')
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('Telegram webhook error:', err)
