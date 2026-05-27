@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   // Московское время UTC+3. До 08:00 MSK отчёт засчитывается за предыдущий день
   const mskDate = new Date(Date.now() + 3*60*60*1000)
   const mskHour = mskDate.getUTCHours()
-  if (mskHour < 8) mskDate.setDate(mskDate.getDate() - 1)
+  if (mskHour < 6) mskDate.setDate(mskDate.getDate() - 1)
   const today = mskDate.toISOString().split('T')[0]
 
   // /setreporttopic — admin устанавливает тему для отчётов
