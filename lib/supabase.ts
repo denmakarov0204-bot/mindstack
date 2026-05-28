@@ -70,7 +70,7 @@ export interface DisciplineScore {
   updated_at?: string
 }
 
-export interface MeetingAttendance {
+export interface MeetingAttendee {
   id: string
   meeting_id: string
   member_id: string
