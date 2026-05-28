@@ -103,7 +103,7 @@ async function recalcDisciplineScores(members: { id: string; name: string }[]) {
     .select('id').eq('status', 'completed')
   const totalMeetings = (completedMeetings || []).length
 
-  const { data: attendance } = await supabase.from('meeting_attendance')
+  const { data: attendance } = await supabase.from('meeting_attendees')
     .select('member_id, meeting_id, attended')
 
   const upserts = members.map((m) => {
