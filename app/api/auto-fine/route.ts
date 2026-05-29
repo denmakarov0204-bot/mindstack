@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
 
   const submittedIds = new Set((reports || []).map((r: any) => r.member_id))
   const missed = members.filter((m: any) => !submittedIds.has(m.id))
+  const submitted = members.filter((m: any) => submittedIds.has(m.id))
 
   let finedCount = 0
   let finedNames: string[] = []
@@ -45,7 +46,6 @@ export async function GET(req: NextRequest) {
           reason_type: 'missed_report', is_auto: true,
         }))
       )
-
       for (const m of toFine) {
         const { data: existingReport } = await supabase.from('daily_reports').select('id')
           .eq('member_id', m.id).eq('date', dateStr).maybeSingle()
@@ -56,17 +56,25 @@ export async function GET(req: NextRequest) {
           })
         }
       }
-
       finedCount = toFine.length
       finedNames = toFine.map((m: any) => m.name)
-
-      const lines = toFine.map((m: any) => `• ${m.name} — ${FINE_AMOUNT}₽`).join('\n')
-      await sendToGroup(
-        `🔴 <b>Авто-штраф за ${dateStr}</b>\n\nОтчёт не сдан:\n${lines}\n\n` +
-        `💰 Итого: ${toFine.length} × ${FINE_AMOUNT}₽ = ${toFine.length * FINE_AMOUNT}₽`
-      )
     }
   }
+
+  // Ежедневный дайджест — всегда
+  const submittedLine = submitted.length > 0
+    ? '✅ Сдали: ' + submitted.map((m: any) => m.name.split(' ')[0]).join(', ')
+    : '✅ Сдали: —'
+  const missedLine = missed.length > 0
+    ? '❌ Не сдали: ' + missed.map((m: any) => m.name.split(' ')[0]).join(', ')
+    : '❌ Не сдали: —'
+  const fineNote = finedCount > 0
+    ? `\n\n💸 Штраф: ${finedCount} × ${FINE_AMOUNT}₽ = ${finedCount * FINE_AMOUNT}₽`
+    : ''
+
+  await sendToGroup(
+    `📋 <b>Отчёты за ${dateStr}</b>\n\n${submittedLine}\n${missedLine}${fineNote}`
+  )
 
   await recalcDisciplineScores(members)
 
@@ -92,7 +100,7 @@ async function recalcDisciplineScores(members: { id: string; name: string }[]) {
   const days30ago = new Date(mskNow.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
   const { data: reports30 } = await supabase.from('daily_reports')
-    .select('member_id, status')
+    .select('member_id, status, date')
     .gte('date', days30ago).lte('date', today)
 
   const totalDays = Math.min(30,
@@ -108,26 +116,20 @@ async function recalcDisciplineScores(members: { id: string; name: string }[]) {
 
   const upserts = members.map((m) => {
     const myReports = (reports30 || []).filter((r: any) => r.member_id === m.id)
-    const submitted = myReports.filter((r: any) => r.status === 'submitted').length
+    const submittedR = myReports.filter((r: any) => r.status === 'submitted').length
     const late = myReports.filter((r: any) => r.status === 'late').length
-    const reportPts = submitted + late * 0.7
     const reportsScore = totalDays > 0
-      ? Math.round(Math.min(100, (reportPts / totalDays) * 100))
+      ? Math.round(Math.min(100, ((submittedR + late * 0.7) / totalDays) * 100))
       : 100
-
     let meetingsScore = 100
     if (totalMeetings > 0) {
-      const myAttendance = (attendance || []).filter((a: any) => a.member_id === m.id)
-      const missed = myAttendance.filter((a: any) => !a.attended).length
-      const attendedCount = totalMeetings - missed
-      meetingsScore = Math.round(Math.min(100, (attendedCount / totalMeetings) * 100))
+      const missedM = (attendance || []).filter((a: any) => a.member_id === m.id && !a.attended).length
+      meetingsScore = Math.round(Math.min(100, ((totalMeetings - missedM) / totalMeetings) * 100))
     }
-
-    const score = Math.round(reportsScore * 0.5 + meetingsScore * 0.5)
-
     return {
       member_id: m.id, name: m.name,
-      score, reports_score: reportsScore, meetings_score: meetingsScore,
+      score: Math.round(reportsScore * 0.5 + meetingsScore * 0.5),
+      reports_score: reportsScore, meetings_score: meetingsScore,
       updated_at: new Date().toISOString(),
     }
   })
