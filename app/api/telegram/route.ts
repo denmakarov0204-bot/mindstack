@@ -43,6 +43,7 @@ function isReport(text: string): boolean {
 
 function isValidReport(text: string): boolean {
   const lower = text.toLowerCase()
+  if (lower.startsWith('#отчет') || lower.startsWith('#отчёт')) return true
   const hasResult = lower.includes('сделал') || lower.includes('выполнил') || lower.includes('завершил') ||
     lower.includes('результат') || lower.includes('итог') || lower.includes('готово') ||
     lower.includes('сдал') || lower.includes('работал') || lower.includes('занимался') ||
@@ -124,7 +125,7 @@ export async function POST(req: NextRequest) {
     ? new Date(mskNow.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     : mskNow.toISOString().split('T')[0]
 
-  const isLate = mskHour >= 6 && mskHour >= 22
+  const isLate = mskHour < 6
 
   const { data: existing } = await supabase
     .from('daily_reports')
@@ -134,6 +135,10 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   if (existing) {
+    if (existing.status === 'submitted') {
+      await setReaction(chatId, messageId, '✅')
+      return NextResponse.json({ ok: true })
+    }
     await supabase.from('daily_reports').update({
       content: messageText,
       status: isLate ? 'late' : 'submitted',
