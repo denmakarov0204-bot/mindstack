@@ -1,15 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import AddExpenseModal from '@/components/AddExpenseModal'
+import FinesHistory from '@/components/FinesHistory'
 
 export const revalidate = 60
-
-const CATEGORY_LABELS: Record<string, string> = {
-  food: '🍕 Еда / встречи',
-  rent: '🏢 Аренда / место',
-  equipment: '💻 Оборудование',
-  transport: '🚗 Транспорт',
-  other: '📦 Другое',
-}
 
 async function getData() {
   const [{ data: balances }, { data: fines }, { data: expenses }] = await Promise.all([
@@ -30,21 +23,28 @@ export default async function FinesPage() {
 
   const timeline = [
     ...fines.map((f: any) => ({
-      id: f.id, type: 'fine' as const,
-      date: f.created_at, amount: f.amount,
-      label: `${f.members?.name} — ${f.reason}`,
-      tag: f.reason_type, isAuto: f.is_auto,
+      id: f.id as string,
+      type: 'fine' as const,
+      date: f.created_at as string,
+      amount: f.amount as number,
+      label: (f.members?.name || '—') + ' — ' + f.reason,
+      tag: f.reason_type as string,
+      isAuto: f.is_auto as boolean,
     })),
     ...expenses.map((e: any) => ({
-      id: e.id, type: 'expense' as const,
-      date: e.created_at, amount: e.amount,
-      label: e.description, tag: e.category,
-      isAuto: false, createdBy: e.created_by,
+      id: e.id as string,
+      type: 'expense' as const,
+      date: e.created_at as string,
+      amount: e.amount as number,
+      label: e.description as string,
+      tag: e.category as string,
+      isAuto: false,
+      createdBy: e.created_by as string | undefined,
     })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
   return (
-    <main className="flex-1 p-8 animate-fade-in">
+    <div className="p-8 animate-fade-in">
       <div className="max-w-[900px]">
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-2xl font-extrabold tracking-tight">Банк штрафов</h1>
@@ -52,7 +52,7 @@ export default async function FinesPage() {
         </div>
         <p className="text-[13px] text-muted mb-7">Учёт начислений, оплат и расходов</p>
 
-        <div className="grid grid-cols-4 gap-4 mb-7">
+        <div className="grid grid-cols-3 gap-4 mb-4">
           <div className="bg-surface border border-border rounded-xl p-5">
             <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Всего начислено</div>
             <div className="text-3xl font-extrabold text-accent2 tracking-tight mt-1">{totalCharged.toLocaleString('ru')}₽</div>
@@ -61,6 +61,12 @@ export default async function FinesPage() {
             <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Оплачено</div>
             <div className="text-3xl font-extrabold text-c-green tracking-tight mt-1">{totalPaid.toLocaleString('ru')}₽</div>
           </div>
+          <div className="bg-surface border border-border rounded-xl p-5">
+            <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Долг</div>
+            <div className="text-3xl font-extrabold text-c-red tracking-tight mt-1">{totalDebt.toLocaleString('ru')}₽</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4 mb-7">
           <div className="bg-surface border border-border rounded-xl p-5">
             <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Расходы кассы</div>
             <div className="text-3xl font-extrabold text-c-orange tracking-tight mt-1">{totalExpenses.toLocaleString('ru')}₽</div>
@@ -94,29 +100,9 @@ export default async function FinesPage() {
 
         <div className="bg-surface border border-border rounded-2xl p-5">
           <div className="text-[14px] font-bold mb-4">История операций</div>
-          {timeline.map((item) => (
-            <div key={item.id + item.type} className="flex items-center gap-3 py-2.5 border-b border-border last:border-0">
-              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                item.type === 'expense' ? 'bg-c-green' :
-                item.tag === 'missed_report' ? 'bg-c-orange' :
-                item.tag === 'missed_meeting' ? 'bg-c-red' : 'bg-c-blue'
-              }`} />
-              <div className="flex-1">
-                <div className="text-[13px]">{item.label}</div>
-                <div className="text-[11px] text-muted mt-0.5 flex gap-2">
-                  <span>{new Date(item.date).toLocaleDateString('ru-RU')}</span>
-                  {item.type === 'fine' && item.isAuto && <span>· авто</span>}
-                  {item.type === 'expense' && <span>· {CATEGORY_LABELS[item.tag] || item.tag}</span>}
-                  {item.type === 'expense' && (item as any).createdBy && <span>· {(item as any).createdBy}</span>}
-                </div>
-              </div>
-              <div className={`text-[13px] font-bold font-mono ${item.type === 'fine' ? 'text-c-red' : 'text-c-green'}`}>
-                {item.type === 'fine' ? '+' : '−'}{item.amount.toLocaleString('ru')}₽
-              </div>
-            </div>
-          ))}
+          <FinesHistory items={timeline} />
         </div>
       </div>
-    </main>
+    </div>
   )
 }
