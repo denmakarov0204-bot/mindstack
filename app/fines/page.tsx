@@ -5,14 +5,6 @@ import MarkAsPaidButton from '@/components/MarkAsPaidButton'
 
 export const revalidate = 60
 
-const CATEGORY_LABELS: Record<string, string> = {
-  food: '🍕 Еда / встречи',
-  rent: '🏢 Аренда / место',
-  equipment: '💻 Оборудование',
-  transport: '🚗 Транспорт',
-  other: '📦 Другое',
-}
-
 async function getData() {
   const [{ data: balances }, { data: fines }, { data: expenses }] = await Promise.all([
     supabase.from('member_fine_balance').select('*').order('debt', { ascending: false }),
@@ -109,7 +101,7 @@ export default async function FinesPage() {
           ))}
         </div>
 
-        <FinesHistory items={timeline} categoryLabels={CATEGORY_LABELS} />
+        <FinesHistory items={timeline} />
       </div>
     </div>
   )
