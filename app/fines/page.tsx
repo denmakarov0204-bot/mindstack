@@ -1,216 +1,126 @@
-'use client'
-import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import Sidebar from '@/components/Sidebar'
+import AddExpenseModal from '@/components/AddExpenseModal'
 
-type Member = { id: string; name: string; debt: number; total_charged: number; total_paid: number }
-type Fine = { id: string; member_id: string; amount: number; reason: string; created_at: string; members?: { name: string } }
+export const revalidate = 60
 
-export default function FinesPage() {
-  const [balances, setBalances] = useState<Member[]>([])
-  const [fines, setFines] = useState<Fine[]>([])
-  const [members, setMembers] = useState<{id:string;name:string}[]>([])
-  const [loading, setLoading] = useState(true)
-  const [paying, setPaying] = useState<string | null>(null)
-  const [payAmount, setPayAmount] = useState<Record<string, string>>({})
+const CATEGORY_LABELS: Record<string, string> = {
+  food: '🍕 Еда / встречи',
+  rent: '🏢 Аренда / место',
+  equipment: '💻 Оборудование',
+  transport: '🚗 Транспорт',
+  other: '📦 Другое',
+}
 
-  // Форма ручного штрафа
-  const [showFineForm, setShowFineForm] = useState(false)
-  const [fineTarget, setFineTarget] = useState('')
-  const [fineAmount, setFineAmount] = useState('')
-  const [fineReason, setFineReason] = useState('')
-  const [addingFine, setAddingFine] = useState(false)
+async function getData() {
+  const [{ data: balances }, { data: fines }, { data: expenses }] = await Promise.all([
+    supabase.from('member_fine_balance').select('*').order('debt', { ascending: false }),
+    supabase.from('fines').select('*, members(name)').order('created_at', { ascending: false }).limit(50),
+    supabase.from('bank_expenses').select('*').order('created_at', { ascending: false }),
+  ])
+  return { balances: balances || [], fines: fines || [], expenses: expenses || [] }
+}
 
-  async function load() {
-    const [{ data: b }, { data: f }, { data: m }] = await Promise.all([
-      supabase.from('member_fine_balance').select('*').order('debt', { ascending: false }),
-      supabase.from('fines').select('*, members(name)').order('created_at', { ascending: false }).limit(50),
-      supabase.from('members').select('id, name').eq('is_active', true).order('name'),
-    ])
-    setBalances(b || [])
-    setFines(f || [])
-    setMembers(m || [])
-    setLoading(false)
-  }
+export default async function FinesPage() {
+  const { balances, fines, expenses } = await getData()
+  const totalCharged = balances.reduce((s: number, m: any) => s + m.total_charged, 0)
+  const totalDebt = balances.reduce((s: number, m: any) => s + m.debt, 0)
+  const totalPaid = totalCharged - totalDebt
+  const totalExpenses = expenses.reduce((s: number, e: any) => s + e.amount, 0)
+  const bankBalance = totalPaid - totalExpenses
 
-  useEffect(() => { load() }, [])
-
-  async function handlePay(memberId: string) {
-    const amount = parseInt(payAmount[memberId] || '0')
-    if (!amount || amount <= 0) return
-    setPaying(memberId)
-    await fetch('/api/pay-fine', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId, amount }),
-    })
-    setPayAmount(p => ({ ...p, [memberId]: '' }))
-    setPaying(null)
-    load()
-  }
-
-  async function handleAddFine() {
-    if (!fineTarget || !fineAmount || !fineReason) return
-    setAddingFine(true)
-    await supabase.from('fines').insert({
-      member_id: fineTarget,
-      amount: parseInt(fineAmount),
-      reason: fineReason,
-      is_auto: false,
-    })
-    setFineTarget('')
-    setFineAmount('')
-    setFineReason('')
-    setShowFineForm(false)
-    setAddingFine(false)
-    load()
-  }
-
-  const totalDebt = balances.reduce((s, m) => s + m.debt, 0)
-  const totalBank = balances.reduce((s, m) => s + m.total_paid, 0)
-  const totalCharged = balances.reduce((s, m) => s + m.total_charged, 0)
-
-  if (loading) return <div className="p-8 text-muted text-[14px]">Загрузка...</div>
+  const timeline = [
+    ...fines.map((f: any) => ({
+      id: f.id, type: 'fine' as const,
+      date: f.created_at, amount: f.amount,
+      label: `${f.members?.name} — ${f.reason}`,
+      tag: f.reason_type, isAuto: f.is_auto,
+    })),
+    ...expenses.map((e: any) => ({
+      id: e.id, type: 'expense' as const,
+      date: e.created_at, amount: e.amount,
+      label: e.description, tag: e.category,
+      isAuto: false, createdBy: e.created_by,
+    })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
   return (
-    <div className="p-8 animate-fade-in max-w-[1000px]">
-      <div className="flex items-center justify-between mb-7">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Штрафы</h1>
-          <p className="text-[13px] text-muted mt-1">Банк дисциплины группы</p>
-        </div>
-        <button
-          onClick={() => setShowFineForm(v => !v)}
-          className="flex items-center gap-2 px-4 py-2 bg-c-red/15 hover:bg-c-red/25 text-c-red text-[13px] font-bold rounded-xl transition-colors"
-        >
-          + Назначить штраф
-        </button>
-      </div>
-
-      {/* Форма ручного штрафа */}
-      {showFineForm && (
-        <div className="bg-surface border border-c-red/25 rounded-2xl p-5 mb-6">
-          <div className="text-[14px] font-bold mb-4">⚡ Новый штраф</div>
-          <div className="flex flex-col md:flex-row gap-3">
-            <select
-              value={fineTarget}
-              onChange={e => setFineTarget(e.target.value)}
-              className="flex-1 bg-surface2 border border-border rounded-xl px-3 py-2.5 text-[13px] focus:outline-none focus:border-accent"
-            >
-              <option value="">Выбери участника...</option>
-              {members.map(m => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
-            <input
-              type="number"
-              value={fineAmount}
-              onChange={e => setFineAmount(e.target.value)}
-              placeholder="Сумма ₽"
-              min="1"
-              className="w-[120px] bg-surface2 border border-border rounded-xl px-3 py-2.5 text-[13px] font-mono focus:outline-none focus:border-accent"
-            />
+    <div className="flex min-h-screen bg-bg">
+      <Sidebar />
+      <main className="flex-1 p-8 animate-fade-in">
+        <div className="max-w-[900px]">
+          <div className="flex items-center justify-between mb-1">
+            <h1 className="text-2xl font-extrabold tracking-tight">Банк штрафов</h1>
+            <AddExpenseModal />
           </div>
-          <input
-            type="text"
-            value={fineReason}
-            onChange={e => setFineReason(e.target.value)}
-            placeholder="Причина штрафа..."
-            className="w-full mt-3 bg-surface2 border border-border rounded-xl px-3 py-2.5 text-[13px] focus:outline-none focus:border-accent"
-          />
-          <div className="flex items-center gap-3 mt-3">
-            <button
-              onClick={handleAddFine}
-              disabled={!fineTarget || !fineAmount || !fineReason || addingFine}
-              className="px-4 py-2 bg-c-red/15 hover:bg-c-red/25 text-c-red text-[13px] font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {addingFine ? 'Добавляю...' : '⚡ Назначить'}
-            </button>
-            <button onClick={() => setShowFineForm(false)} className="text-muted text-[13px] hover:text-foreground">
-              Отмена
-            </button>
-          </div>
-        </div>
-      )}
+          <p className="text-[13px] text-muted mb-7">Учёт начислений, оплат и расходов</p>
 
-      {/* KPI */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-surface border border-border rounded-xl p-5">
-          <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Банк группы</div>
-          <div className="text-3xl font-extrabold text-c-green mt-1">{totalBank.toLocaleString('ru')}₽</div>
-        </div>
-        <div className="bg-surface border border-border rounded-xl p-5">
-          <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Общий долг</div>
-          <div className={`text-3xl font-extrabold mt-1 ${totalDebt > 0 ? 'text-c-red' : 'text-muted'}`}>{totalDebt.toLocaleString('ru')}₽</div>
-        </div>
-        <div className="bg-surface border border-border rounded-xl p-5">
-          <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Начислено всего</div>
-          <div className="text-3xl font-extrabold text-c-orange mt-1">{totalCharged.toLocaleString('ru')}₽</div>
-        </div>
-      </div>
-
-      {/* Долги участников */}
-      <div className="bg-surface border border-border rounded-2xl p-5 mb-6">
-        <div className="text-[14px] font-bold mb-4">💸 Долги участников</div>
-        <div className="flex flex-col gap-3">
-          {balances.map(m => (
-            <div key={m.id} className="flex items-center gap-4 py-3 border-b border-border last:border-0">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-[14px] font-bold flex-shrink-0"
-                style={{background:'rgba(124,106,255,0.15)',color:'#a78bfa'}}>{m.name.charAt(0)}</div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] font-semibold">{m.name}</div>
-                <div className="text-[11px] text-muted">начислено {m.total_charged}₽ · оплачено {m.total_paid}₽</div>
-              </div>
-              <div className={`text-[18px] font-extrabold font-mono min-w-[70px] text-right ${m.debt > 0 ? 'text-c-red' : 'text-c-green'}`}>
-                {m.debt > 0 ? `${m.debt}₽` : '✓ 0₽'}
-              </div>
-              {m.debt > 0 && (
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <input
-                    type="number"
-                    value={payAmount[m.id] || ''}
-                    onChange={e => setPayAmount(p => ({...p, [m.id]: e.target.value}))}
-                    placeholder={`до ${m.debt}₽`}
-                    className="w-[90px] bg-surface2 border border-border rounded-lg px-2 py-1.5 text-[12px] font-mono text-center focus:outline-none focus:border-accent"
-                    min="1" max={m.debt}
-                  />
-                  <button
-                    onClick={() => handlePay(m.id)}
-                    disabled={paying === m.id || !payAmount[m.id]}
-                    className="px-3 py-1.5 bg-accent/20 hover:bg-accent/30 text-accent2 text-[12px] font-bold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {paying === m.id ? '...' : '✓ Оплатил'}
-                  </button>
-                </div>
-              )}
+          <div className="grid grid-cols-4 gap-4 mb-7">
+            <div className="bg-surface border border-border rounded-xl p-5">
+              <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Всего начислено</div>
+              <div className="text-3xl font-extrabold text-accent2 tracking-tight mt-1">{totalCharged.toLocaleString('ru')}₽</div>
             </div>
-          ))}
-        </div>
-      </div>
+            <div className="bg-surface border border-border rounded-xl p-5">
+              <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Оплачено</div>
+              <div className="text-3xl font-extrabold text-c-green tracking-tight mt-1">{totalPaid.toLocaleString('ru')}₽</div>
+            </div>
+            <div className="bg-surface border border-border rounded-xl p-5">
+              <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Расходы кассы</div>
+              <div className="text-3xl font-extrabold text-c-orange tracking-tight mt-1">{totalExpenses.toLocaleString('ru')}₽</div>
+            </div>
+            <div className="bg-surface border border-border rounded-xl p-5">
+              <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Баланс кассы</div>
+              <div className={`text-3xl font-extrabold tracking-tight mt-1 ${bankBalance >= 0 ? 'text-c-green' : 'text-c-red'}`}>
+                {bankBalance >= 0 ? '' : '−'}{Math.abs(bankBalance).toLocaleString('ru')}₽
+              </div>
+            </div>
+          </div>
 
-      {/* История штрафов */}
-      <div className="bg-surface border border-border rounded-2xl p-5">
-        <div className="text-[14px] font-bold mb-4">📋 История штрафов</div>
-        {fines.length === 0 ? (
-          <div className="text-[13px] text-muted">Штрафов пока нет</div>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {fines.map(f => (
-              <div key={f.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
-                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-                  style={{background:'rgba(124,106,255,0.15)',color:'#a78bfa'}}>{f.members?.name?.charAt(0)}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-semibold">{f.members?.name}</div>
-                  <div className="text-[11px] text-muted truncate">{f.reason}</div>
+          <div className="bg-surface border border-border rounded-2xl p-5 mb-5">
+            <div className="text-[14px] font-bold mb-4">По участникам</div>
+            {balances.map((m: any) => (
+              <div key={m.id} className="flex items-center gap-3 py-3 border-b border-border last:border-0">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[13px] font-bold"
+                  style={{ background: 'rgba(124,106,255,0.15)', color: '#a78bfa' }}>
+                  {m.name.charAt(0)}
                 </div>
-                <div className="text-[11px] text-muted font-mono">
-                  {new Date(f.created_at).toLocaleDateString('ru-RU', {day:'numeric',month:'short'})}
+                <div className="flex-1">
+                  <div className="text-[13px] font-semibold">{m.name}</div>
+                  <div className="text-[11px] text-muted">Начислено {m.total_charged}₽ · Оплачено {m.total_paid}₽</div>
                 </div>
-                <div className="text-[13px] font-bold font-mono text-c-red">{f.amount}₽</div>
+                <div className={`text-[14px] font-bold font-mono ${m.debt === 0 ? 'text-muted' : 'text-c-red'}`}>
+                  {m.debt === 0 ? '✓ Оплачено' : `${m.debt}₽ долг`}
+                </div>
               </div>
             ))}
           </div>
-        )}
-      </div>
+
+          <div className="bg-surface border border-border rounded-2xl p-5">
+            <div className="text-[14px] font-bold mb-4">История операций</div>
+            {timeline.map((item) => (
+              <div key={item.id + item.type} className="flex items-center gap-3 py-2.5 border-b border-border last:border-0">
+                <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  item.type === 'expense' ? 'bg-c-green' :
+                  item.tag === 'missed_report' ? 'bg-c-orange' :
+                  item.tag === 'missed_meeting' ? 'bg-c-red' : 'bg-c-blue'
+                }`} />
+                <div className="flex-1">
+                  <div className="text-[13px]">{item.label}</div>
+                  <div className="text-[11px] text-muted mt-0.5 flex gap-2">
+                    <span>{new Date(item.date).toLocaleDateString('ru-RU')}</span>
+                    {item.type === 'fine' && item.isAuto && <span>· авто</span>}
+                    {item.type === 'expense' && <span>· {CATEGORY_LABELS[item.tag] || item.tag}</span>}
+                    {item.type === 'expense' && (item as any).createdBy && <span>· {(item as any).createdBy}</span>}
+                  </div>
+                </div>
+                <div className={`text-[13px] font-bold font-mono ${item.type === 'fine' ? 'text-c-red' : 'text-c-green'}`}>
+                  {item.type === 'fine' ? '+' : '−'}{item.amount.toLocaleString('ru')}₽
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
     </div>
   )
 }
