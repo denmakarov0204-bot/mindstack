@@ -1,8 +1,17 @@
 import { supabase } from '@/lib/supabase'
 import AddExpenseModal from '@/components/AddExpenseModal'
 import FinesHistory from '@/components/FinesHistory'
+import MarkAsPaidButton from '@/components/MarkAsPaidButton'
 
 export const revalidate = 60
+
+const CATEGORY_LABELS: Record<string, string> = {
+  food: '🍕 Еда / встречи',
+  rent: '🏢 Аренда / место',
+  equipment: '💻 Оборудование',
+  transport: '🚗 Транспорт',
+  other: '📦 Другое',
+}
 
 async function getData() {
   const [{ data: balances }, { data: fines }, { data: expenses }] = await Promise.all([
@@ -23,23 +32,17 @@ export default async function FinesPage() {
 
   const timeline = [
     ...fines.map((f: any) => ({
-      id: f.id as string,
-      type: 'fine' as const,
-      date: f.created_at as string,
-      amount: f.amount as number,
-      label: (f.members?.name || '—') + ' — ' + f.reason,
-      tag: f.reason_type as string,
-      isAuto: f.is_auto as boolean,
+      id: f.id, type: 'fine' as const,
+      date: f.created_at, amount: f.amount,
+      label: `${f.members?.name} — ${f.reason}`,
+      tag: f.reason_type, isAuto: f.is_auto,
     })),
     ...expenses.map((e: any) => ({
-      id: e.id as string,
-      type: 'expense' as const,
-      date: e.created_at as string,
-      amount: e.amount as number,
-      label: e.description as string,
-      tag: e.category as string,
-      isAuto: false,
-      createdBy: e.created_by as string | undefined,
+      id: e.id, type: 'expense' as const,
+      date: e.created_at, amount: e.amount,
+      label: e.description,
+      tag: e.category, isAuto: false,
+      createdBy: e.created_by,
     })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
@@ -63,15 +66,18 @@ export default async function FinesPage() {
           </div>
           <div className="bg-surface border border-border rounded-xl p-5">
             <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Долг</div>
-            <div className="text-3xl font-extrabold text-c-red tracking-tight mt-1">{totalDebt.toLocaleString('ru')}₽</div>
+            <div className={`text-3xl font-extrabold tracking-tight mt-1 ${totalDebt > 0 ? 'text-c-red' : 'text-muted'}`}>
+              {totalDebt.toLocaleString('ru')}₽
+            </div>
           </div>
         </div>
+
         <div className="grid grid-cols-2 gap-4 mb-7">
           <div className="bg-surface border border-border rounded-xl p-5">
             <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Расходы кассы</div>
             <div className="text-3xl font-extrabold text-c-orange tracking-tight mt-1">{totalExpenses.toLocaleString('ru')}₽</div>
           </div>
-          <div className="bg-surface border border-border rounded-xl p-5">
+          <div className={`border rounded-xl p-5 ${bankBalance >= 0 ? 'bg-surface border-border' : 'bg-surface border-c-red'}`}>
             <div className="text-[11px] text-muted font-mono uppercase tracking-wider">Баланс кассы</div>
             <div className={`text-3xl font-extrabold tracking-tight mt-1 ${bankBalance >= 0 ? 'text-c-green' : 'text-c-red'}`}>
               {bankBalance >= 0 ? '' : '−'}{Math.abs(bankBalance).toLocaleString('ru')}₽
@@ -91,17 +97,19 @@ export default async function FinesPage() {
                 <div className="text-[13px] font-semibold">{m.name}</div>
                 <div className="text-[11px] text-muted">Начислено {m.total_charged}₽ · Оплачено {m.total_paid}₽</div>
               </div>
-              <div className={`text-[14px] font-bold font-mono ${m.debt === 0 ? 'text-muted' : 'text-c-red'}`}>
-                {m.debt === 0 ? '✓ Оплачено' : `${m.debt}₽ долг`}
+              <div className="flex items-center gap-2">
+                <div className={`text-[14px] font-bold font-mono ${m.debt === 0 ? 'text-muted' : 'text-c-red'}`}>
+                  {m.debt === 0 ? '✓ Оплачено' : `${m.debt}₽ долг`}
+                </div>
+                {m.debt > 0 && (
+                  <MarkAsPaidButton memberId={m.id} memberName={m.name} debt={m.debt} />
+                )}
               </div>
             </div>
           ))}
         </div>
 
-        <div className="bg-surface border border-border rounded-2xl p-5">
-          <div className="text-[14px] font-bold mb-4">История операций</div>
-          <FinesHistory items={timeline} />
-        </div>
+        <FinesHistory items={timeline} categoryLabels={CATEGORY_LABELS} />
       </div>
     </div>
   )
