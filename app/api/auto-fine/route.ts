@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
           reason_type: 'missed_report', is_auto: true,
         }))
       )
+
       for (const m of toFine) {
         const { data: existingReport } = await supabase.from('daily_reports').select('id')
           .eq('member_id', m.id).eq('date', dateStr).maybeSingle()
@@ -56,12 +57,12 @@ export async function GET(req: NextRequest) {
           })
         }
       }
+
       finedCount = toFine.length
       finedNames = toFine.map((m: any) => m.name)
     }
   }
 
-  // Ежедневный дайджест — всегда
   const submittedLine = submitted.length > 0
     ? '✅ Сдали: ' + submitted.map((m: any) => m.name.split(' ')[0]).join(', ')
     : '✅ Сдали: —'
@@ -78,7 +79,10 @@ export async function GET(req: NextRequest) {
 
   await recalcDisciplineScores(members)
 
-  return NextResponse.json({ ok: true, date: dateStr, fined: finedCount, members: finedNames })
+  return NextResponse.json({
+    ok: true, date: dateStr,
+    fined: finedCount, members: finedNames,
+  })
 }
 
 async function sendToGroup(text: string) {
@@ -107,34 +111,51 @@ async function recalcDisciplineScores(members: { id: string; name: string }[]) {
     Math.round((mskNow.getTime() - new Date(days30ago + 'T00:00:00Z').getTime()) / 86400000) + 1
   )
 
+  // Only count completed meetings
   const { data: completedMeetings } = await supabase.from('meetings')
     .select('id').eq('status', 'completed')
-  const totalMeetings = (completedMeetings || []).length
 
+  const totalMeetings = (completedMeetings || []).length
+  const completedMeetingIds = new Set((completedMeetings || []).map((m: any) => m.id))
+
+  // Only load attendance for completed meetings
   const { data: attendance } = await supabase.from('meeting_attendees')
     .select('member_id, meeting_id, attended')
 
   const upserts = members.map((m) => {
     const myReports = (reports30 || []).filter((r: any) => r.member_id === m.id)
-    const submittedR = myReports.filter((r: any) => r.status === 'submitted').length
+    const submittedCount = myReports.filter((r: any) => r.status === 'submitted').length
     const late = myReports.filter((r: any) => r.status === 'late').length
+    const reportPts = submittedCount + late * 0.7
     const reportsScore = totalDays > 0
-      ? Math.round(Math.min(100, ((submittedR + late * 0.7) / totalDays) * 100))
+      ? Math.round(Math.min(100, (reportPts / totalDays) * 100))
       : 100
+
     let meetingsScore = 100
     if (totalMeetings > 0) {
-      const missedM = (attendance || []).filter((a: any) => a.member_id === m.id && !a.attended).length
-      meetingsScore = Math.round(Math.min(100, ((totalMeetings - missedM) / totalMeetings) * 100))
+      // Filter attendance to only completed meetings
+      const myAttendance = (attendance || []).filter(
+        (a: any) => a.member_id === m.id && completedMeetingIds.has(a.meeting_id)
+      )
+      const missedMeetings = myAttendance.filter((a: any) => !a.attended).length
+      const attendedCount = totalMeetings - missedMeetings
+      meetingsScore = Math.round(Math.min(100, (attendedCount / totalMeetings) * 100))
     }
+
+    const score = Math.round(reportsScore * 0.5 + meetingsScore * 0.5)
+
     return {
-      member_id: m.id, name: m.name,
-      score: Math.round(reportsScore * 0.5 + meetingsScore * 0.5),
-      reports_score: reportsScore, meetings_score: meetingsScore,
+      member_id: m.id,
+      name: m.name,
+      score,
+      reports_score: reportsScore,
+      meetings_score: meetingsScore,
       updated_at: new Date().toISOString(),
     }
   })
 
   if (upserts.length > 0) {
-    await supabase.from('discipline_scores').upsert(upserts, { onConflict: 'member_id' })
+    await supabase.from('discipline_scores')
+      .upsert(upserts, { onConflict: 'member_id' })
   }
 }
