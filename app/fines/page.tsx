@@ -1,21 +1,23 @@
 import { supabase } from '@/lib/supabase'
 import AddExpenseModal from '@/components/AddExpenseModal'
+import AddFineModal from '@/components/AddFineModal'
 import FinesHistory from '@/components/FinesHistory'
 import MarkAsPaidButton from '@/components/MarkAsPaidButton'
 
 export const revalidate = 60
 
 async function getData() {
-  const [{ data: balances }, { data: fines }, { data: expenses }] = await Promise.all([
+  const [{ data: balances }, { data: fines }, { data: expenses }, { data: members }] = await Promise.all([
     supabase.from('member_fine_balance').select('*').order('debt', { ascending: false }),
     supabase.from('fines').select('*, members(name)').order('created_at', { ascending: false }).limit(50),
     supabase.from('bank_expenses').select('*').order('created_at', { ascending: false }),
+    supabase.from('members').select('id, name').eq('is_active', true).order('name'),
   ])
-  return { balances: balances || [], fines: fines || [], expenses: expenses || [] }
+  return { balances: balances || [], fines: fines || [], expenses: expenses || [], members: members || [] }
 }
 
 export default async function FinesPage() {
-  const { balances, fines, expenses } = await getData()
+  const { balances, fines, expenses, members } = await getData()
   const totalCharged = balances.reduce((s: number, m: any) => s + m.total_charged, 0)
   const totalDebt = balances.reduce((s: number, m: any) => s + m.debt, 0)
   const totalPaid = totalCharged - totalDebt
@@ -43,7 +45,10 @@ export default async function FinesPage() {
       <div className="max-w-[900px]">
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-2xl font-extrabold tracking-tight">Банк штрафов</h1>
-          <AddExpenseModal />
+          <div className="flex items-center gap-2">
+            <AddFineModal members={members} />
+            <AddExpenseModal />
+          </div>
         </div>
         <p className="text-[13px] text-muted mb-7">Учёт начислений, оплат и расходов</p>
 
