@@ -16,10 +16,11 @@ export default function MarkAsPaidButton({
   const [open, setOpen] = useState(false)
   const [amount, setAmount] = useState(String(debt))
   const [loading, setLoading] = useState(false)
+  const [done, setDone] = useState(false)
 
   async function handlePay() {
     const num = Number(amount)
-    if (!num || num <= 0) return
+    if (!num || num <= 0 || loading || done) return
     setLoading(true)
     try {
       const res = await fetch('/api/payments', {
@@ -28,6 +29,7 @@ export default function MarkAsPaidButton({
         body: JSON.stringify({ member_id: memberId, amount: num }),
       })
       if (res.ok) {
+        setDone(true)
         setOpen(false)
         router.refresh()
       }
@@ -35,6 +37,8 @@ export default function MarkAsPaidButton({
       setLoading(false)
     }
   }
+
+  if (done) return null
 
   return (
     <>
@@ -70,8 +74,8 @@ export default function MarkAsPaidButton({
               </button>
               <button
                 onClick={handlePay}
-                disabled={loading || !amount || Number(amount) <= 0}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-accent text-white text-[13px] font-semibold hover:opacity-90 transition disabled:opacity-50"
+                disabled={loading || done || !amount || Number(amount) <= 0}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-accent text-white text-[13px] font-semibold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Сохраняю...' : 'Сохранить'}
               </button>
